@@ -20,16 +20,27 @@ export class Game {
 
     this.applySize();
     const topOffset = (document.getElementById('hud-chrono') as HTMLElement | null)?.offsetHeight ?? 55;
-    this.scene.onResize(window.innerWidth, window.innerHeight, topOffset);
+    const { width, height } = this.getViewportSize();
+    this.scene.onResize(width, height, topOffset);
 
     window.addEventListener('resize', this.onWindowResize);
+    window.visualViewport?.addEventListener('resize', this.onWindowResize);
     this.animId = requestAnimationFrame(this.loop);
+  }
+
+  private getViewportSize(): { width: number; height: number } {
+    const viewport = window.visualViewport;
+    return {
+      width: Math.round(viewport?.width ?? window.innerWidth),
+      height: Math.round(viewport?.height ?? window.innerHeight),
+    };
   }
 
   private applySize(): void {
     const dpr = window.devicePixelRatio || 1;
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const { width: w, height: h } = this.getViewportSize();
+    document.documentElement.style.setProperty('--app-height', `${h}px`);
+    document.documentElement.style.setProperty('--app-width', `${w}px`);
     this.canvas.width  = Math.floor(w * dpr);
     this.canvas.height = Math.floor(h * dpr);
     this.canvas.style.width  = `${w}px`;
@@ -39,7 +50,8 @@ export class Game {
   private onWindowResize = (): void => {
     this.applySize();
     const topOffset = (document.getElementById('hud-chrono') as HTMLElement | null)?.offsetHeight ?? 55;
-    this.scene.onResize(window.innerWidth, window.innerHeight, topOffset);
+    const { width, height } = this.getViewportSize();
+    this.scene.onResize(width, height, topOffset);
   };
 
   private loop = (timestamp: number): void => {
@@ -58,5 +70,6 @@ export class Game {
   destroy(): void {
     cancelAnimationFrame(this.animId);
     window.removeEventListener('resize', this.onWindowResize);
+    window.visualViewport?.removeEventListener('resize', this.onWindowResize);
   }
 }

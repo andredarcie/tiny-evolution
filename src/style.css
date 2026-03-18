@@ -9,8 +9,8 @@ html, body {
 
 #game-container {
   position: relative;
-  width: 100vw;
-  height: 100vh;
+  width: var(--app-width, 100vw);
+  height: var(--app-height, 100dvh);
 }
 
 #game-container canvas {
@@ -280,10 +280,37 @@ html, body {
 .layout-stacked #hud-actions {
   position: absolute;
   right: 12px;
-  bottom: 12px;
+  bottom: max(12px, env(safe-area-inset-bottom, 0px));
   display: flex;
   gap: 10px;
   pointer-events: auto;
+}
+
+.layout-stacked #legend-toggle-btn {
+  bottom: max(12px, env(safe-area-inset-bottom, 0px));
+}
+
+@media (max-height: 760px) {
+  .layout-stacked #hud-stats {
+    top: calc(var(--grid-y) + var(--grid-h) + 8px);
+    padding: 8px 10px;
+    gap: 0 10px;
+  }
+
+  .layout-stacked .value-gen { font-size: 24px; }
+  .layout-stacked .stat-value { font-size: 11px; }
+  .layout-stacked .stat-label { font-size: 7px; letter-spacing: 1px; }
+  .layout-stacked .value-era,
+  .layout-stacked .value-env,
+  .layout-stacked .value-entropy { font-size: 9px; }
+
+  .layout-stacked #algo-info-btn,
+  .layout-stacked #merge-history-btn,
+  .layout-stacked #legend-toggle-btn {
+    width: 46px;
+    height: 46px;
+    font-size: 20px;
+  }
 }
 
 /* ── Shared stat styles ───────────────────────────────────────────────── */

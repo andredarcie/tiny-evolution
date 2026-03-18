@@ -49,16 +49,26 @@ export class GameScene {
     hud.setHistoryProvider(() => this.evolution.history);
   }
 
+  private getStackedHudReserve(height: number): number {
+    if (height <= 680) return 150;
+    if (height <= 760) return 132;
+    return 118;
+  }
+
   onResize(w: number, h: number, topOffset = 0): void {
     this.logicalW = w;
     this.logicalH = h;
 
-    const dims = getGridDimensions(w, h, topOffset);
+    const projected = getGridDimensions(w, h, topOffset);
+    const projectedOffsetX = Math.floor((w - projected.cols * projected.cellSize) / 2);
+    const side = projectedOffsetX > 140;
+    const bottomOffset = side ? 0 : this.getStackedHudReserve(h);
+    const dims = getGridDimensions(w, h, topOffset, bottomOffset);
     this.cols     = dims.cols;
     this.rows     = dims.rows;
     this.cellSize = dims.cellSize;
     this.offsetX  = Math.floor((w - this.cols * this.cellSize) / 2);
-    this.offsetY  = topOffset + Math.floor((h - topOffset - this.rows * this.cellSize) / 2);
+    this.offsetY  = topOffset + Math.floor((h - topOffset - bottomOffset - this.rows * this.cellSize) / 2);
 
     // Expose grid geometry to CSS for HUD positioning
     const gridW = this.cols * this.cellSize;
@@ -71,7 +81,6 @@ export class GameScene {
 
     const overlay = document.getElementById('hud-overlay');
     if (overlay) {
-      const side = this.offsetX > 140;
       overlay.classList.toggle('layout-side',    side);
       overlay.classList.toggle('layout-stacked', !side);
     }

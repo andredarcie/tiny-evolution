@@ -2,8 +2,8 @@
 const GRID_COLS = 19;
 const GRID_ROWS = 19;
 
-export function getGridDimensions(width: number, height: number, topOffset = 0) {
-  const availH = height - topOffset;
+export function getGridDimensions(width: number, height: number, topOffset = 0, bottomOffset = 0) {
+  const availH = Math.max(0, height - topOffset - bottomOffset);
   const cellSize = Math.floor(Math.min(width / GRID_COLS, availH / GRID_ROWS));
   return { cols: GRID_COLS, rows: GRID_ROWS, cellSize };
 }
