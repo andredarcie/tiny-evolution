@@ -100,6 +100,8 @@ export class Entity {
   }
 
   private static initialPopulationFor(level: number): number {
+    if (level <= 2) return 14 - level * 2;
+    if (level <= 4) return 10 - level;
     return Math.max(3, 10 - Math.floor(level / 2));
   }
 }

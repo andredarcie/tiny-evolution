@@ -19,14 +19,6 @@ interface EntityVisual {
 
 type TerrainTile = 'water' | 'land';
 
-interface InteractionFlash {
-  col: number;
-  row: number;
-  alpha: number;
-  scale: number;
-  color: string;
-}
-
 const DIRS = [
   { dx: 0, dy: -1 }, { dx: 0, dy: 1 },
   { dx: -1, dy: 0 }, { dx: 1, dy: 0 },
@@ -51,9 +43,9 @@ export class GameScene {
   private tweens = new TweenManager();
   private particles = new ParticleSystem();
   private spreadTimers = new Map<number, number>();
-  private interactionFlash: InteractionFlash | null = null;
   private entropy = 0.18;
   private collapseCooldown = 0;
+  private simulationAccumulator = 0;
 
   constructor(hud: HUD) {
     this.hud = hud;
@@ -124,12 +116,21 @@ export class GameScene {
       this.evolution.reset();
       this.spawnInitial();
     }
+    this.simulationAccumulator = 1000 / GAME_CONFIG.TICKS_PER_SECOND;
     this.updateHUD();
   }
 
   update(dt: number): void {
     this.tweens.tick(dt);
     this.particles.update(dt);
+
+    const tickInterval = 1000 / GAME_CONFIG.TICKS_PER_SECOND;
+    this.simulationAccumulator += dt;
+
+    while (this.simulationAccumulator >= tickInterval) {
+      this.simulationAccumulator -= tickInterval;
+      this.runSimulationTick();
+    }
   }
 
   render(ctx: CanvasRenderingContext2D): void {
@@ -142,23 +143,8 @@ export class GameScene {
 
     this.drawGrid(ctx);
     this.drawEnvironmentDecor(ctx);
-    this.drawInteractionFeedback(ctx);
     this.particles.draw(ctx);
     this.drawEntities(ctx);
-  }
-
-  handlePointer(x: number, y: number): void {
-    const cell = this.cellFromPoint(x, y);
-    if (!cell) return;
-
-    const entity = this.grid[cell.row]?.[cell.col];
-    if (!entity || !entity.isAlive) return;
-
-    const clickScore = this.evaluateClickQuality(entity);
-    this.showInteractionFeedback(cell.col, cell.row, clickScore >= 0 ? '#58c16c' : '#d35a4b');
-    this.showEntityClickJuice(entity, clickScore);
-    this.processInteractionTurn(entity, clickScore);
-    this.updateHUD();
   }
 
   // ── Private: drawing ────────────────────────────────────────────────────────
@@ -267,26 +253,6 @@ export class GameScene {
     }
   }
 
-  private drawInteractionFeedback(ctx: CanvasRenderingContext2D): void {
-    if (!this.interactionFlash || this.interactionFlash.alpha <= 0.01) return;
-
-    const cs = this.cellSize;
-    const x = this.offsetX + this.interactionFlash.col * cs;
-    const y = this.offsetY + this.interactionFlash.row * cs;
-    const inset = Math.max(2, cs * 0.08);
-
-    ctx.save();
-    ctx.globalAlpha = this.interactionFlash.alpha;
-    ctx.strokeStyle = this.interactionFlash.color;
-    ctx.lineWidth = Math.max(2, Math.floor(cs * 0.08));
-    ctx.strokeRect(
-      x + inset * this.interactionFlash.scale,
-      y + inset * this.interactionFlash.scale,
-      cs - inset * 2 * this.interactionFlash.scale,
-      cs - inset * 2 * this.interactionFlash.scale
-    );
-    ctx.restore();
-  }
 
   // ── Private: grid helpers ───────────────────────────────────────────────────
 
@@ -295,17 +261,6 @@ export class GameScene {
       x: this.offsetX + col * this.cellSize + this.cellSize / 2,
       y: this.offsetY + row * this.cellSize + this.cellSize * 0.74,
     };
-  }
-
-  private cellFromPoint(x: number, y: number): { col: number; row: number } | null {
-    const localX = x - this.offsetX;
-    const localY = y - this.offsetY;
-    if (localX < 0 || localY < 0) return null;
-
-    const col = Math.floor(localX / this.cellSize);
-    const row = Math.floor(localY / this.cellSize);
-    if (col < 0 || col >= this.cols || row < 0 || row >= this.rows) return null;
-    return { col, row };
   }
 
   private findFreeCell(cx: number, cy: number): { x: number; y: number } | null {
@@ -394,42 +349,19 @@ export class GameScene {
     }
   }
 
-  private processInteractionTurn(entity: Entity, clickScore: number): void {
-    const currentEra = this.evolution.maxEraReached;
-    this.applyClickConsequences(entity, clickScore);
-    if (!entity.isAlive) {
-      this.removeEntity(entity);
-      this.updateEntropyFromCurrentState();
-      return;
-    }
+  private runSimulationTick(): void {
+    const entities = Array.from(this.visuals.values(), vis => vis.entity)
+      .filter(entity => entity.isAlive)
+      .sort(() => random() - 0.5);
 
-    const steps = this.getInteractionStepCount(currentEra);
-    const protectedClick = clickScore >= 0;
-
-    for (let i = 0; i < steps; i++) {
-      if (!entity.isAlive) break;
-      this.processEntityStep(entity, protectedClick);
-    }
-
-    const neighbors = this.getNeighborEntities(entity.gridX, entity.gridY);
-    const neighborSteps = currentEra <= 4 ? 4 : 5;
-    for (const neighbor of neighbors) {
-      if (!neighbor.isAlive) continue;
-      const neighborCompatible =
-        Math.abs(entity.level - neighbor.level) <= 1 &&
-        (neighbor.lineage === entity.lineage || neighbor.lineage === 'primordial' || entity.lineage === 'primordial');
-
-      if (protectedClick && !neighborCompatible) continue;
-      if (!protectedClick && neighborCompatible) continue;
-
-      for (let i = 0; i < neighborSteps; i++) {
-        if (!neighbor.isAlive) break;
-        this.processEntityStep(neighbor, protectedClick && neighborCompatible);
-      }
+    for (const entity of entities) {
+      if (!entity.isAlive) continue;
+      this.processEntityStep(entity);
     }
 
     this.updateEntropyFromCurrentState();
     this.replenishPopulationIfNeeded();
+    this.updateHUD();
   }
 
   private processEntityStep(entity: Entity, protectedFromBadOutcome = false): void {
@@ -723,64 +655,6 @@ export class GameScene {
     return neighbors;
   }
 
-  private getInteractionStepCount(currentEra: number): number {
-    if (currentEra <= 1) return 12;
-    if (currentEra <= 4) return 9;
-    if (currentEra <= 8) return 7;
-    return 5;
-  }
-
-  private evaluateClickQuality(entity: Entity): number {
-    const terrain = this.terrain[entity.gridY]?.[entity.gridX] ?? 'water';
-    const terrainSuitability = this.getTerrainSuitability(entity, terrain);
-    const neighbors = this.getNeighborEntities(entity.gridX, entity.gridY);
-    let compatibleSupport = 0;
-    let hostilePressure = 0;
-
-    for (const neighbor of neighbors) {
-      if (!neighbor.isAlive) continue;
-      const compatibleLevel = Math.abs(entity.level - neighbor.level) <= 1;
-      const compatibleLineage =
-        neighbor.lineage === entity.lineage ||
-        neighbor.lineage === 'primordial' ||
-        entity.lineage === 'primordial';
-
-      if (compatibleLevel && compatibleLineage) {
-        compatibleSupport += 1;
-      } else {
-        hostilePressure += 1 + Math.max(0, neighbor.level - entity.level) * 0.5;
-      }
-    }
-
-    const carryingCapacity = Math.max(1, entity.baseCarryingCapacity);
-    const hasGoodTerrain = terrainSuitability >= 0.72;
-    const canStillGrow = entity.population <= carryingCapacity * 0.96;
-    const hasSupport = compatibleSupport > 0;
-    const isolated = neighbors.length === 0;
-    const overwhelmed = hostilePressure > compatibleSupport + 0.5;
-
-    if (hasGoodTerrain && hasSupport && canStillGrow) return 2;
-    if (hasGoodTerrain && !isolated && !overwhelmed && canStillGrow) return 1;
-    if (!hasGoodTerrain && isolated) return -2;
-    if (overwhelmed || !canStillGrow) return -1;
-    return 0;
-  }
-
-  private applyClickConsequences(entity: Entity, clickScore: number): void {
-    if (clickScore >= 0) {
-      entity.resource = Math.min(1, entity.resource + 0.38 + clickScore * 0.22);
-      entity.population += Math.max(4, 5 + clickScore * 5.8);
-      return;
-    }
-
-    const penalty = Math.abs(clickScore);
-    entity.resource = Math.max(0, entity.resource - (0.03 + penalty * 0.05));
-    entity.population = Math.max(0, entity.population - (0.45 + penalty * 0.9));
-    if (entity.population < 0.75) {
-      entity.isAlive = false;
-    }
-  }
-
   private syncVisual(entity: Entity): void {
     const vis = this.visuals.get(entity.id);
     if (!vis) return;
@@ -788,42 +662,6 @@ export class GameScene {
     vis.y = vis.targetY;
     vis.scale = this.getVisualScale(entity);
     vis.alpha = 1;
-  }
-
-  private showInteractionFeedback(col: number, row: number, color: string): void {
-    this.interactionFlash = { col, row, alpha: 0.95, scale: 0.35, color };
-    this.tweens.add(180, t => {
-      if (!this.interactionFlash) return;
-      this.interactionFlash.alpha = 0.95 * (1 - t);
-      this.interactionFlash.scale = 0.35 + t * 0.55;
-    }, {
-      ease: Ease.quadOut,
-      onComplete: () => {
-        this.interactionFlash = null;
-      },
-    });
-  }
-
-  private showEntityClickJuice(entity: Entity, clickScore: number): void {
-    const vis = this.visuals.get(entity.id);
-    if (!vis) return;
-
-    const baseScale = this.getVisualScale(entity);
-    vis.scale = baseScale * 0.92;
-
-    this.tweens.add(150, t => {
-      const punch = t < 0.45
-        ? 0.92 + (t / 0.45) * 0.34
-        : 1.26 - ((t - 0.45) / 0.55) * 0.26;
-      vis.scale = baseScale * punch;
-    }, {
-      ease: Ease.quadOut,
-      onComplete: () => {
-        vis.scale = this.getVisualScale(entity);
-      },
-    });
-
-    this.particles.burst(vis.x, vis.y - this.cellSize * 0.18, clickScore >= 0 ? '#58c16c' : '#d35a4b', 8);
   }
 
   private getTotalPopulation(): number {
@@ -840,15 +678,15 @@ export class GameScene {
 
   private getEarlyEraGrowthBrake(): number {
     const era = this.evolution.maxEraReached;
-    if (era <= 2) return 0.42;
-    if (era <= 4) return 0.56;
+    if (era <= 2) return 0.9;
+    if (era <= 4) return 0.72;
     if (era <= 7) return 0.74;
     return 1;
   }
 
   private getEvolutionThreshold(currentEra: number, entity: Entity): number {
-    const multiplier = currentEra <= 4 ? 0.68 : currentEra <= 7 ? 0.56 : 0.42;
-    return Math.max(8, entity.baseCarryingCapacity * multiplier);
+    const multiplier = currentEra <= 2 ? 0.22 : currentEra <= 4 ? 0.34 : currentEra <= 7 ? 0.5 : 0.42;
+    return Math.max(4, entity.baseCarryingCapacity * multiplier);
   }
 
   private getPairEvolutionReadiness(a: Entity, b: Entity, currentEra: number): number {

@@ -10,13 +10,13 @@ export function getGridDimensions(width: number, height: number, topOffset = 0, 
 
 export const GAME_CONFIG = {
   /** Ticks per second for the simulation */
-  TICKS_PER_SECOND: 2,
+  TICKS_PER_SECOND: 6,
   /** Initial entity count as fraction of total cells */
-  INITIAL_FILL: 0.12,
+  INITIAL_FILL: 0.22,
   /** Min total organisms before replenishment kicks in */
   MIN_POPULATION: 120,
   /** How many level-0 colonies to inject on replenishment */
-  REPLENISH_AMOUNT: 4,
+  REPLENISH_AMOUNT: 8,
   /** Hard cap for aggregated organisms represented on the board */
   MAX_POPULATION: 2400,
   /** Tween duration for entity movement (ms) */
