@@ -13,22 +13,32 @@ describe('getGridDimensions', () => {
     const w = 390;
     const h = 844;
     const d = getGridDimensions(w, h);
-    expect(d.cols * d.cellSize).toBeLessThanOrEqual(w + d.cellSize);
-    expect(d.rows * d.cellSize).toBeLessThanOrEqual(h + d.cellSize);
+    expect(d.cols * d.cellSize).toBeLessThanOrEqual(w);
+    expect(d.rows * d.cellSize).toBeLessThanOrEqual(h);
   });
 
-  it('uses larger cells on desktop vs mobile', () => {
+  it('keeps the grid fixed at 19 by 19 across viewport sizes', () => {
     const mobile  = getGridDimensions(375,  812);
     const desktop = getGridDimensions(1920, 1080);
-    // Desktop should have more columns
-    expect(desktop.cols).toBeGreaterThan(mobile.cols);
+    expect(mobile.cols).toBe(19);
+    expect(mobile.rows).toBe(19);
+    expect(desktop.cols).toBe(19);
+    expect(desktop.rows).toBe(19);
   });
 
-  it('cell size is within bounds [36, 56]', () => {
+  it('uses larger cells on desktop than on mobile', () => {
+    const mobile = getGridDimensions(375, 812);
+    const desktop = getGridDimensions(1920, 1080);
+    expect(desktop.cellSize).toBeGreaterThan(mobile.cellSize);
+  });
+
+  it('shrinks the grid when top and bottom HUD offsets are reserved', () => {
     for (const [w, h] of [[375, 812], [768, 1024], [1920, 1080]]) {
       const d = getGridDimensions(w, h);
-      expect(d.cellSize).toBeGreaterThanOrEqual(36);
-      expect(d.cellSize).toBeLessThanOrEqual(56 + 1); // +1 tolerance for floor
+      const withOffsets = getGridDimensions(w, h, 72, 140);
+      expect(withOffsets.cellSize).toBeLessThanOrEqual(d.cellSize);
+      expect(withOffsets.rows).toBe(19);
+      expect(withOffsets.cols).toBe(19);
     }
   });
 });

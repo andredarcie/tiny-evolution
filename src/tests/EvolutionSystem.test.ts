@@ -43,6 +43,20 @@ describe('EvolutionSystem', () => {
     }
   });
 
+  it('keeps essential living groups available in the evolution tree', () => {
+    const earlyEukaryoteDefs = DEFS_BY_LEVEL.get(4) ?? [];
+    const cambrianDefs = DEFS_BY_LEVEL.get(8) ?? [];
+    const invertebrateDefs = DEFS_BY_LEVEL.get(9) ?? [];
+
+    expect(earlyEukaryoteDefs.some(def => def.name === 'Ameba')).toBe(true);
+    expect(cambrianDefs.some(def => def.name === 'Anêmona-do-mar')).toBe(true);
+    expect(cambrianDefs.some(def => def.name === 'Coral')).toBe(true);
+    expect(invertebrateDefs.some(def => def.name === 'Anelídeo')).toBe(true);
+    expect(invertebrateDefs.some(def => def.name === 'Nematódeo')).toBe(true);
+    expect(invertebrateDefs.some(def => def.name === 'Crustáceo')).toBe(true);
+    expect(invertebrateDefs.some(def => def.name === 'Angiosperma')).toBe(true);
+  });
+
   describe('tryMerge', () => {
     it('returns null for dead entities', () => {
       const a = new Entity(level0Def, 0, 0);
