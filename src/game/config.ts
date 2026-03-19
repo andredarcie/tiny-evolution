@@ -12,13 +12,13 @@ export const GAME_CONFIG = {
   /** Ticks per second for the simulation */
   TICKS_PER_SECOND: 2,
   /** Initial entity count as fraction of total cells */
-  INITIAL_FILL: 0.30,
-  /** Min population before replenishment kicks in */
-  MIN_POPULATION: 20,
-  /** How many level-0 entities to inject on replenishment */
-  REPLENISH_AMOUNT: 20,
-  /** Hard cap: never exceed this many organisms on screen (19×19 = 361 cells) */
-  MAX_POPULATION: 361,
+  INITIAL_FILL: 0.12,
+  /** Min total organisms before replenishment kicks in */
+  MIN_POPULATION: 120,
+  /** How many level-0 colonies to inject on replenishment */
+  REPLENISH_AMOUNT: 4,
+  /** Hard cap for aggregated organisms represented on the board */
+  MAX_POPULATION: 2400,
   /** Tween duration for entity movement (ms) */
   MOVE_TWEEN_MS: 100,
   /** Tween duration for merge animation (ms) */

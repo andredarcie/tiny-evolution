@@ -11,6 +11,7 @@ export class Game {
   constructor(container: HTMLElement) {
     this.canvas = document.createElement('canvas');
     this.canvas.style.display = 'block';
+    this.canvas.style.touchAction = 'manipulation';
     container.appendChild(this.canvas);
 
     this.ctx = this.canvas.getContext('2d')!;
@@ -25,6 +26,7 @@ export class Game {
 
     window.addEventListener('resize', this.onWindowResize);
     window.visualViewport?.addEventListener('resize', this.onWindowResize);
+    this.canvas.addEventListener('pointerdown', this.onPointerDown);
     this.animId = requestAnimationFrame(this.loop);
   }
 
@@ -67,9 +69,15 @@ export class Game {
     this.animId = requestAnimationFrame(this.loop);
   };
 
+  private onPointerDown = (event: PointerEvent): void => {
+    const rect = this.canvas.getBoundingClientRect();
+    this.scene.handlePointer(event.clientX - rect.left, event.clientY - rect.top);
+  };
+
   destroy(): void {
     cancelAnimationFrame(this.animId);
     window.removeEventListener('resize', this.onWindowResize);
     window.visualViewport?.removeEventListener('resize', this.onWindowResize);
+    this.canvas.removeEventListener('pointerdown', this.onPointerDown);
   }
 }

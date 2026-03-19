@@ -1,5 +1,6 @@
 import { Entity } from '../entities/Entity';
 import { DEFS_BY_LEVEL, ERA_BY_LEVEL } from '../entities/EntityTypes';
+import { randomChoice, randomInt } from '../random';
 
 export interface MergeResult {
   child: Entity;
@@ -42,7 +43,7 @@ export class EvolutionSystem {
     return {
       generation: this._generation,
       maxEraReached: this._maxEraReached,
-      eraName: ERA_BY_LEVEL[this._maxEraReached] ?? '🌋 Sopa Primordial',
+      eraName: ERA_BY_LEVEL[this._maxEraReached] ?? '?? Sopa Primordial',
       environmentalPressure,
       entropy,
       totalMerges: this._totalMerges,
@@ -50,20 +51,10 @@ export class EvolutionSystem {
     };
   }
 
-  /**
-   * Attempt to merge two entities. Returns MergeResult if successful,
-   * null if the merge fails (incompatible levels, low fertility, or max level).
-   */
   tryMerge(a: Entity, b: Entity, gridX: number, gridY: number, reproductionModifier = 1): MergeResult | null {
     if (!a.isAlive || !b.isAlive) return null;
     if (Math.abs(a.level - b.level) > 1) return null;
-
-    // Moderate merge probability (~35–55% per encounter)
-    const fertilityCheck = Math.max(
-      0.03,
-      Math.min(0.7, ((a.genes.fertility + b.genes.fertility) / 2 + 0.15) * reproductionModifier)
-    );
-    if (Math.random() > fertilityCheck) return null;
+    if (reproductionModifier < 1) return null;
 
     const child = Entity.combine(a, b, gridX, gridY);
     if (!child) return null;
@@ -93,22 +84,20 @@ export class EvolutionSystem {
     };
   }
 
-  /** Spawn initial level-0 entities at random positions. */
   spawnInitial(cols: number, rows: number, count: number): Entity[] {
     const level0Defs = DEFS_BY_LEVEL.get(0) ?? [];
     if (level0Defs.length === 0) return [];
 
     const entities: Entity[] = [];
     for (let i = 0; i < count; i++) {
-      const def = level0Defs[Math.floor(Math.random() * level0Defs.length)];
-      const x = Math.floor(Math.random() * cols);
-      const y = Math.floor(Math.random() * rows);
+      const def = randomChoice(level0Defs);
+      const x = randomInt(cols);
+      const y = randomInt(rows);
       entities.push(new Entity(def, x, y));
     }
     return entities;
   }
 
-  /** Spawn a few level-0 replenishments to keep the simulation alive. */
   spawnReplenishment(cols: number, rows: number, amount: number): Entity[] {
     return this.spawnInitial(cols, rows, amount);
   }

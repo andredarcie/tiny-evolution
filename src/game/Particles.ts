@@ -1,3 +1,5 @@
+import { random } from './random';
+
 interface Particle {
   x: number;
   y: number;
@@ -14,16 +16,16 @@ export class ParticleSystem {
 
   burst(x: number, y: number, color: string, count = 14): void {
     for (let i = 0; i < count; i++) {
-      const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.4;
-      const speed = 50 + Math.random() * 100;
+      const angle = (Math.PI * 2 * i) / count + (random() - 0.5) * 0.4;
+      const speed = 50 + random() * 100;
       this.particles.push({
         x, y,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
         elapsed: 0,
-        lifetime: 350 + Math.random() * 250,
+        lifetime: 350 + random() * 250,
         color,
-        radius: 2 + Math.random() * 4,
+        radius: 2 + random() * 4,
       });
     }
   }

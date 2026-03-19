@@ -129,7 +129,7 @@ export class HUD {
         </div>
         <div class="stat-divider"></div>
         <div class="stat-block">
-          <span class="stat-label label-life">VIDA TOTAL</span>
+          <span class="stat-label label-life">POPULAÇÃO TOTAL</span>
           <span class="stat-value value-life" id="life-value">0 organismos</span>
         </div>
         <div class="stat-divider"></div>
@@ -309,11 +309,11 @@ export class HUD {
   update(stats: EvolutionStats, counts?: Map<string, number>, environmentProfile?: EnvironmentProfile): void {
     if (counts) {
       for (const [name, el] of this.legendCounts) {
-        el.textContent = `(${counts.get(name) ?? 0})`;
+        el.textContent = `(${(counts.get(name) ?? 0).toLocaleString('pt-BR')})`;
       }
     }
     if (environmentProfile) this.updateEnvironmentGuide(environmentProfile);
-    this.lifeEl.textContent   = `${stats.population} organismos`;
+    this.lifeEl.textContent   = `${stats.population.toLocaleString('pt-BR')}`;
     this.eraEl.textContent    = stats.eraName;
     this.envEl.textContent    = stats.environmentalPressure;
     this.entropyEl.textContent = `${Math.round(stats.entropy * 100)}%`;
@@ -402,14 +402,23 @@ export class HUD {
       this.infoModalBody.innerHTML = `
         <div class="info-section">
           <div class="info-section-title">Resumo</div>
-          <p>A simulação roda em uma grade. Cada ser ocupa uma célula, envelhece, tenta se mover e interage com os vizinhos imediatos. Agora o ambiente também seleciona quais perfis genéticos sobrevivem melhor.</p>
+          <p>A simulação funciona como um jogo de regras fixas. Cada clique resolve um turno local sem sorteio escondido: a população cresce ou piora conforme o terreno, os vizinhos e o espaço disponível naquele momento.</p>
+        </div>
+        <div class="info-section">
+          <div class="info-section-title">Como Vencer</div>
+          <p>Seu objetivo é levar a evolução até a última era. Em termos práticos: você vence quando conseguir fazer surgir <strong>🏙️ Cidade</strong>, o nível final da linha evolutiva.</p>
+          <ul class="info-list">
+            <li>O jogo avança quando você cria populações fortes e aproxima linhagens compatíveis.</li>
+            <li>Cada novo nível descoberto empurra a linha do tempo para frente.</li>
+            <li>Se a última forma de vida aparecer, você completou a jornada evolutiva.</li>
+          </ul>
         </div>
         <div class="info-section">
           <div class="info-section-title">Ciclo de execução</div>
           <ol class="info-list">
-            <li>O sistema percorre todos os seres vivos do tabuleiro.</li>
-            <li>Cada ser envelhece e pode morrer quando ultrapassa seu limite de vida.</li>
-            <li>Quando o temporizador individual chega a zero, ele tenta andar.</li>
+            <li>Você toca ou clica em uma população da grade.</li>
+            <li>Esse clique executa um pequeno turno local naquela população e também pressiona os vizinhos imediatos.</li>
+            <li>Durante esse turno local, a população envelhece, consome recurso, cresce, pode se espalhar, competir e eventualmente gerar um evento evolutivo.</li>
           </ol>
         </div>
         <div class="info-section">
@@ -435,24 +444,44 @@ export class HUD {
         <div class="info-section">
           <div class="info-section-title">Regras de movimento</div>
           <ul class="info-list">
-            <li>Se a célula vizinha estiver vazia, o ser se move.</li>
-            <li>Se encontrar um nível menor, ele predará o ocupante.</li>
-            <li>Se encontrar um nível maior, ele é removido.</li>
-            <li>Se encontrar o mesmo nível, tenta gerar uma fusão.</li>
+            <li>Populações densas colonizam células vazias próximas em vez de simplesmente andar pelo tabuleiro.</li>
+            <li>Quando duas populações se tocam, elas competem por espaço e recurso.</li>
+            <li>Se a vantagem ecológica for pequena, o contato pode virar evento evolutivo em vez de extermínio direto.</li>
           </ul>
         </div>
         <div class="info-section">
           <div class="info-section-title">Fusão e evolução</div>
           <ul class="info-list">
-            <li>A chance de fusão usa a fertilidade média dos pais e também a adaptação deles ao ambiente atual.</li>
-            <li>Se a fusão acontecer, nasce um descendente em uma célula livre próxima.</li>
-            <li>Os pais continuam vivos; a fusão cria um novo ser, não substitui os dois.</li>
+            <li>Evolução não depende mais de sorte.</li>
+            <li>Ela acontece sempre que duas populações vizinhas são compatíveis, estão vivas, estão no terreno certo e as duas já têm população suficiente.</li>
+            <li>Quando isso acontece, nasce uma nova população em uma célula livre próxima.</li>
+            <li>As colônias parentais continuam existindo; o evento cria uma nova frente evolutiva.</li>
             <li>Quando surge um nível inédito, a geração sobe e a linha do tempo avança.</li>
           </ul>
         </div>
         <div class="info-section">
+          <div class="info-section-title">Estratégia Geral</div>
+          <ul class="info-list">
+            <li>Primeiro, clique em populações no terreno correto: água para linhagens aquáticas, terra para plantas e formas terrestres.</li>
+            <li>Depois, fortaleça duas populações vizinhas compatíveis até ambas ficarem densas.</li>
+            <li>Quando esse par estiver pronto, continue clicando nele: a evolução vai acontecer, não é sorte.</li>
+            <li>Evite cliques em colônias isoladas, lotadas ou cercadas por rivais mais fortes, porque isso só atrasa sua progressão.</li>
+            <li>Em resumo: terreno certo, par compatível, população alta. Esse é o caminho objetivo para vencer.</li>
+          </ul>
+        </div>
+        <div class="info-section">
+          <div class="info-section-title">Clique Bom x Clique Ruim</div>
+          <ul class="info-list">
+            <li>Verde significa regra favorável de verdade: terreno adequado e situação com potencial real de crescimento.</li>
+            <li>Vermelho significa regra desfavorável: terreno ruim, falta de espaço, isolamento ou pressão rival.</li>
+            <li>Clique verde sempre fortalece a população clicada.</li>
+            <li>Clique vermelho sempre piora a população clicada.</li>
+            <li>Se duas populações vizinhas compatíveis ficarem fortes no terreno certo, a evolução acontece de forma garantida.</li>
+          </ul>
+        </div>
+        <div class="info-section">
           <div class="info-section-title">Controles de estabilidade</div>
-          <p>Há limite máximo de população e o histórico guarda apenas as fusões mais recentes, para a simulação não saturar.</p>
+          <p>Há limite máximo de organismos agregados e o histórico guarda apenas os eventos evolutivos mais recentes, para a simulação não saturar.</p>
         </div>
       `;
       this.infoModal.classList.remove('modal-hidden');
@@ -502,7 +531,7 @@ export class HUD {
     }[l] ?? l);
     const g         = def.baseGenes;
     const maxAge    = Math.floor(20 + g.lifespan * 20 + def.level * 15);
-    const ticksMove = Math.round(1 + (1 - g.speed) * 3);
+    const ticksSpread = Math.max(1, Math.round(2 + (1 - g.speed) * 4));
     const fertility = Math.min(0.55, g.fertility + 0.15);
     const allNext   = DEFS_BY_LEVEL.get(def.level + 1) ?? [];
     const nextDefs  = allNext.filter(d => canProduceLineage(def.lineage, def.lineage, d.lineage));
@@ -602,8 +631,8 @@ export class HUD {
       <div class="em-section">
         <div class="em-section-title">Regras na Simulação</div>
         <div class="em-rules">
-          <div class="em-rule"><span class="em-rule-icon">⚡</span><span>Move a cada <strong>${ticksMove}</strong> tick${ticksMove > 1 ? 's' : ''} · Longevidade máxima: ~<strong>${maxAge}</strong> ticks</span></div>
-          <div class="em-rule"><span class="em-rule-icon">💞</span><span>Chance de fusão base: <strong>${Math.round(fertility * 100)}%</strong> — funde com o mesmo nível ou nível adjacente (±1)</span></div>
+          <div class="em-rule"><span class="em-rule-icon">⚡</span><span>Tenta se espalhar a cada <strong>${ticksSpread}</strong> tick${ticksSpread > 1 ? 's' : ''} · Longevidade máxima: ~<strong>${maxAge}</strong> ticks</span></div>
+          <div class="em-rule"><span class="em-rule-icon">💞</span><span>Chance evolutiva base: <strong>${Math.round(fertility * 100)}%</strong> — interage com populações do mesmo nível ou nível adjacente (±1)</span></div>
           ${predates}
           ${predatedBy}
           ${offspring}
@@ -625,3 +654,7 @@ export class HUD {
     }, 2800);
   }
 }
+
+
+
+
