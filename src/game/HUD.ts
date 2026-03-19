@@ -4,6 +4,8 @@ import { ENTITY_DEFS, DEFS_BY_LEVEL, MAX_LEVEL } from './entities/EntityTypes';
 import type { EntityDef } from './entities/EntityTypes';
 import { canProduceLineage } from './entities/EntityTypes';
 
+const GUIDE_ENTITY_DEFS = ENTITY_DEFS.filter(def => def.level >= 2 && def.level < MAX_LEVEL);
+
 // Geological time (years ago) mapped to each evolutionary level
 const ERA_YEARS_AGO: number[] = [
   4_600_000_000, //  0 – Sopa Primordial
@@ -277,7 +279,7 @@ export class HUD {
   // ── Legend ───────────────────────────────────────────────────────────────────
 
   private buildLegend(grid: HTMLElement): void {
-    ENTITY_DEFS.forEach((def, index) => {
+    GUIDE_ENTITY_DEFS.forEach((def, index) => {
       const item = document.createElement('div');
       item.className = 'legend-item';
       item.dataset.defIndex = String(index);
@@ -297,7 +299,7 @@ export class HUD {
     grid.addEventListener('click', (e) => {
       const item = (e.target as HTMLElement).closest('[data-def-index]') as HTMLElement | null;
       if (!item) return;
-      const def = ENTITY_DEFS[Number(item.dataset.defIndex)];
+      const def = GUIDE_ENTITY_DEFS[Number(item.dataset.defIndex)];
       if (def) this.showEntityModal(def);
     });
   }
@@ -477,18 +479,18 @@ export class HUD {
     });
 
     this.entityModalPrev.addEventListener('click', () => {
-      const idx = (this.currentDefIndex - 1 + ENTITY_DEFS.length) % ENTITY_DEFS.length;
-      this.showEntityModal(ENTITY_DEFS[idx]);
+      const idx = (this.currentDefIndex - 1 + GUIDE_ENTITY_DEFS.length) % GUIDE_ENTITY_DEFS.length;
+      this.showEntityModal(GUIDE_ENTITY_DEFS[idx]);
     });
     this.entityModalNext.addEventListener('click', () => {
-      const idx = (this.currentDefIndex + 1) % ENTITY_DEFS.length;
-      this.showEntityModal(ENTITY_DEFS[idx]);
+      const idx = (this.currentDefIndex + 1) % GUIDE_ENTITY_DEFS.length;
+      this.showEntityModal(GUIDE_ENTITY_DEFS[idx]);
     });
   }
 
   showEntityModal(def: EntityDef): void {
-    this.currentDefIndex = ENTITY_DEFS.indexOf(def);
-    this.entityModalNavLabel.textContent = `${this.currentDefIndex + 1} / ${ENTITY_DEFS.length}`;
+    this.currentDefIndex = Math.max(0, GUIDE_ENTITY_DEFS.indexOf(def));
+    this.entityModalNavLabel.textContent = `${this.currentDefIndex + 1} / ${GUIDE_ENTITY_DEFS.length}`;
 
     const lineageLabel = (l: string) => ({
       primordial: '🌌 Ancestral Universal',
