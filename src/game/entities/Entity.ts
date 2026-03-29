@@ -84,8 +84,8 @@ export class Entity {
     const childGenes = Entity.blendGenes(a.genes, b.genes);
     const childGen = Math.max(a.generation, b.generation) + 1;
     const child = new Entity(def, gridX, gridY, childGenes, childGen);
-    child.population = Math.max(2, Math.round((a.population + b.population) * 0.2));
-    child.resource = 0.45;
+    child.population = Math.max(6, Math.round((a.population + b.population) * 0.42));
+    child.resource = 0.72;
     return child;
   }
 

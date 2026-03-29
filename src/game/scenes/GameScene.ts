@@ -395,28 +395,31 @@ export class GameScene {
       return;
     }
 
+    if (this.tryEvolutionOpportunity(entity, currentEra)) {
+      this.spreadTimers.set(entity.id, entity.ticksPerSpread);
+      return;
+    }
+
     const timer = (this.spreadTimers.get(entity.id) ?? 1) - 1;
     this.spreadTimers.set(entity.id, timer);
     if (timer <= 0) {
       this.spreadTimers.set(entity.id, entity.ticksPerSpread);
       this.trySpread(entity, currentEra);
     }
-
-    this.tryEvolutionOpportunity(entity, currentEra);
   }
 
-  private tryMergeEntities(a: Entity, b: Entity, currentEra: number): void {
+  private tryMergeEntities(a: Entity, b: Entity, currentEra: number): boolean {
     const cx = Math.floor((a.gridX + b.gridX) / 2);
     const cy = Math.floor((a.gridY + b.gridY) / 2);
 
     // Respect hard population cap — no child if already at max
-    if (this.getTotalPopulation() >= GAME_CONFIG.MAX_POPULATION) return;
+    if (this.getTotalPopulation() >= GAME_CONFIG.MAX_POPULATION) return false;
 
     // Need a free cell for the child; parents stay in place
     const previewChild = Entity.combine(a, b, cx, cy);
-    if (!previewChild) return;
+    if (!previewChild) return false;
     const spawnCell = this.findTerrainCompatibleFreeCell(previewChild, cx, cy);
-    if (!spawnCell) return;
+    if (!spawnCell) return false;
 
     const result = this.evolution.tryMerge(
       a,
@@ -425,10 +428,13 @@ export class GameScene {
       cy,
       this.getPairEvolutionReadiness(a, b, currentEra)
     );
-    if (!result) return;
+    if (!result) return false;
 
     result.child.gridX = spawnCell.x;
     result.child.gridY = spawnCell.y;
+    const parentContribution = Math.max(2, Math.round((a.population + b.population) * 0.14));
+    a.population = Math.max(2, a.population - parentContribution * 0.5);
+    b.population = Math.max(2, b.population - parentContribution * 0.5);
 
     // Parents remain alive and on the grid — pulse animation only
     for (const id of [a.id, b.id]) {
@@ -448,6 +454,7 @@ export class GameScene {
 
     if (result.newEraReached) this.hud.showEraBanner(result.eraName);
     this.updateHUD();
+    return true;
   }
 
   private replenishPopulationIfNeeded(): void {
@@ -625,13 +632,14 @@ export class GameScene {
     }
   }
 
-  private tryEvolutionOpportunity(entity: Entity, currentEra: number): void {
-    const candidates = this.getNeighborEntities(entity.gridX, entity.gridY)
+  private tryEvolutionOpportunity(entity: Entity, currentEra: number): boolean {
+    const searchRadius = currentEra <= 4 ? 2 : 3;
+    const candidates = this.getEntitiesInRange(entity.gridX, entity.gridY, searchRadius)
       .filter(neighbor => this.isEvolutionPairReady(entity, neighbor, currentEra))
       .sort((a, b) => this.getEvolutionPriority(entity, b) - this.getEvolutionPriority(entity, a));
 
-    if (candidates.length === 0) return;
-    this.tryMergeEntities(entity, candidates[0], currentEra);
+    if (candidates.length === 0) return false;
+    return this.tryMergeEntities(entity, candidates[0], currentEra);
   }
 
   private getCarryingCapacity(entity: Entity, environmentProfile: ReturnType<EnvironmentSystem['getProfile']>): number {
@@ -653,6 +661,23 @@ export class GameScene {
       if (entity) neighbors.push(entity);
     }
     return neighbors;
+  }
+
+  private getEntitiesInRange(col: number, row: number, range: number): Entity[] {
+    const entities: Entity[] = [];
+    for (let dy = -range; dy <= range; dy++) {
+      for (let dx = -range; dx <= range; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = col + dx;
+        const ny = row + dy;
+        if (nx < 0 || nx >= this.cols || ny < 0 || ny >= this.rows) continue;
+        const distance = Math.abs(dx) + Math.abs(dy);
+        if (distance > range) continue;
+        const entity = this.grid[ny][nx];
+        if (entity) entities.push(entity);
+      }
+    }
+    return entities;
   }
 
   private syncVisual(entity: Entity): void {
@@ -714,7 +739,11 @@ export class GameScene {
   }
 
   private getEvolutionPriority(entity: Entity, neighbor: Entity): number {
-    return neighbor.population + this.getTerrainSuitability(neighbor, this.terrain[neighbor.gridY]?.[neighbor.gridX] ?? 'water') * 20 - Math.abs(entity.level - neighbor.level) * 8;
+    const distance = Math.abs(entity.gridX - neighbor.gridX) + Math.abs(entity.gridY - neighbor.gridY);
+    return neighbor.population
+      + this.getTerrainSuitability(neighbor, this.terrain[neighbor.gridY]?.[neighbor.gridX] ?? 'water') * 20
+      - Math.abs(entity.level - neighbor.level) * 8
+      - distance * 6;
   }
 
   private getSpreadTargetScore(entity: Entity, x: number, y: number): number {

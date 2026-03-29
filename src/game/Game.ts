@@ -1,31 +1,41 @@
-import { GameScene } from './scenes/GameScene';
-import { HUD } from './HUD';
+import { TurnHUD } from './turns/TurnHUD';
+import { TurnGameScene } from './turns/TurnGameScene';
 
 export class Game {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
-  private scene: GameScene;
-  private lastTime = 0;
+  private scene: TurnGameScene;
   private animId = 0;
 
   constructor(container: HTMLElement) {
     this.canvas = document.createElement('canvas');
     this.canvas.style.display = 'block';
-    this.canvas.style.touchAction = 'manipulation';
+    this.canvas.style.touchAction = 'none';
     container.appendChild(this.canvas);
+
+    // Prevent pull-to-refresh, pinch-zoom, and scroll bounce on mobile
+    document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
 
     this.ctx = this.canvas.getContext('2d')!;
 
-    const hud = new HUD(container);
-    this.scene = new GameScene(hud);
+    const hud = new TurnHUD(container, {
+      onConsolidate: () => this.scene.performConsolidate(),
+      onAdapt: () => this.scene.performAdapt(),
+      onExpand: () => this.scene.startExpandMode(),
+      onDecompose: () => this.scene.performDecompose(),
+      onSeed: () => this.scene.startSeedMode(),
+      onEndTurn: () => this.scene.endTurn(),
+      onCancel: () => this.scene.cancelCurrentMode(),
+    });
+    this.scene = new TurnGameScene(hud);
 
     this.applySize();
-    const topOffset = (document.getElementById('hud-chrono') as HTMLElement | null)?.offsetHeight ?? 55;
     const { width, height } = this.getViewportSize();
-    this.scene.onResize(width, height, topOffset);
+    this.scene.onResize(width, height);
 
     window.addEventListener('resize', this.onWindowResize);
     window.visualViewport?.addEventListener('resize', this.onWindowResize);
+    this.canvas.addEventListener('pointerdown', this.onPointerDown);
     this.animId = requestAnimationFrame(this.loop);
   }
 
@@ -50,19 +60,20 @@ export class Game {
 
   private onWindowResize = (): void => {
     this.applySize();
-    const topOffset = (document.getElementById('hud-chrono') as HTMLElement | null)?.offsetHeight ?? 55;
     const { width, height } = this.getViewportSize();
-    this.scene.onResize(width, height, topOffset);
+    this.scene.onResize(width, height);
   };
 
-  private loop = (timestamp: number): void => {
-    const dt = this.lastTime ? Math.min(timestamp - this.lastTime, 50) : 0;
-    this.lastTime = timestamp;
+  private onPointerDown = (event: PointerEvent): void => {
+    const rect = this.canvas.getBoundingClientRect();
+    this.scene.handlePointerDown(event.clientX - rect.left, event.clientY - rect.top);
+  };
 
+  private loop = (): void => {
     const dpr = window.devicePixelRatio || 1;
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    this.scene.update(dt);
+    this.scene.update();
     this.scene.render(this.ctx);
 
     this.animId = requestAnimationFrame(this.loop);
@@ -71,5 +82,6 @@ export class Game {
     cancelAnimationFrame(this.animId);
     window.removeEventListener('resize', this.onWindowResize);
     window.visualViewport?.removeEventListener('resize', this.onWindowResize);
+    this.canvas.removeEventListener('pointerdown', this.onPointerDown);
   }
 }
