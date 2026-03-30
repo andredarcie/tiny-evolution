@@ -1,3 +1,4 @@
+﻿import { renderEvolutionTreeHtml } from './evolutionData';
 
 export interface TurnHUDState {
   turn: number;
@@ -37,115 +38,6 @@ export type HUDActionHandlers = {
   onEndTurn: () => void;
   onCancel: () => void;
 };
-
-const EVOLUTION_TREE_HTML = `
-<ul class="evo-tree">
-  <li>
-    <div class="evo-node biome-ocean">🦠 Bactéria Primitiva</div>
-    <ul>
-      <li>
-        <div class="evo-node biome-ocean">🧫 Archaea</div>
-        <ul>
-          <li><div class="evo-node biome-ocean">🫧 Protozoário</div>
-            <ul>
-              <li><div class="evo-node biome-ocean">🦠 Ameba</div></li>
-              <li><div class="evo-node biome-ocean">🧽 Esponja</div>
-                <ul>
-                  <li><div class="evo-node biome-ocean">🪼 Medusa</div></li>
-                  <li><div class="evo-node biome-coast">🌺 Anêmona</div></li>
-                  <li><div class="evo-node biome-coast">🪸 Coral</div></li>
-                  <li><div class="evo-node biome-ocean">🪱 Verme Plano</div>
-                    <ul>
-                      <li><div class="evo-node biome-ocean">🦐 Trilobita</div></li>
-                      <li><div class="evo-node biome-coast">🐚 Molusco</div>
-                        <ul>
-                          <li><div class="evo-node biome-ocean">🐙 Cefalópode</div></li>
-                        </ul>
-                      </li>
-                      <li><div class="evo-node biome-coast">🦀 Crustáceo</div></li>
-                      <li><div class="evo-node biome-ocean">🪱 Anelídeo</div>
-                        <ul>
-                          <li><div class="evo-node biome-coast">🦀 Crustáceo</div></li>
-                          <li><div class="evo-node biome-land">🐛 Inseto</div></li>
-                        </ul>
-                      </li>
-                      <li><div class="evo-node biome-ocean">🪱 Nematódeo</div>
-                        <ul>
-                          <li><div class="evo-node biome-land">🐛 Inseto</div></li>
-                          <li><div class="evo-node biome-land">🕷️ Aracnídeo</div></li>
-                        </ul>
-                      </li>
-                      <li><div class="evo-node biome-ocean">🐟 Peixe</div>
-                        <ul>
-                          <li><div class="evo-node biome-ocean">🦈 Tubarão</div></li>
-                          <li><div class="evo-node biome-coast">🐸 Anfíbio</div>
-                            <ul>
-                              <li><div class="evo-node biome-land">🦎 Réptil</div>
-                                <ul>
-                                  <li><div class="evo-node biome-land">🦕 Dinossauro</div></li>
-                                  <li><div class="evo-node biome-land">🐦 Ave</div></li>
-                                  <li><div class="evo-node biome-land">🐭 Mamífero</div>
-                                    <ul>
-                                      <li><div class="evo-node biome-land">🐒 Primata</div>
-                                        <ul>
-                                          <li><div class="evo-node biome-land">🦧 Hominídeo</div>
-                                            <ul>
-                                              <li><div class="evo-node biome-land">🧑 Humano</div></li>
-                                            </ul>
-                                          </li>
-                                        </ul>
-                                      </li>
-                                    </ul>
-                                  </li>
-                                </ul>
-                              </li>
-                            </ul>
-                          </li>
-                        </ul>
-                      </li>
-                    </ul>
-                  </li>
-                </ul>
-              </li>
-              <li><div class="evo-node biome-coast">🍄 Fungo</div></li>
-            </ul>
-          </li>
-        </ul>
-      </li>
-      <li>
-        <div class="evo-node biome-ocean">🌿 Cianobactéria</div>
-        <ul>
-          <li><div class="evo-node biome-ocean">🫧 Protozoário <span class="evo-ref">ver acima</span></div></li>
-          <li><div class="evo-node biome-coast">🌱 Alga Verde</div>
-            <ul>
-              <li><div class="evo-node biome-coast">🌾 Musgo</div>
-                <ul>
-                  <li><div class="evo-node biome-land">🌳 Planta Vascular</div>
-                    <ul>
-                      <li><div class="evo-node biome-land">🌸 Angiosperma</div></li>
-                    </ul>
-                  </li>
-                </ul>
-              </li>
-              <li><div class="evo-node biome-land">🌳 Planta Vascular</div>
-                <ul>
-                  <li><div class="evo-node biome-land">🌸 Angiosperma</div></li>
-                </ul>
-              </li>
-              <li><div class="evo-node biome-land">🌸 Angiosperma</div></li>
-            </ul>
-          </li>
-          <li><div class="evo-node biome-ocean">🪸 Alga Vermelha</div>
-            <ul>
-              <li><div class="evo-node biome-coast">🪸 Coral</div></li>
-            </ul>
-          </li>
-        </ul>
-      </li>
-    </ul>
-  </li>
-</ul>
-`;
 
 export class TurnHUD {
   private root: HTMLElement;
@@ -232,7 +124,7 @@ export class TurnHUD {
             <button id="tree-modal-close" class="tree-modal-close" aria-label="Fechar árvore evolutiva">Fechar</button>
           </div>
           <div class="tree-modal-content">
-            ${EVOLUTION_TREE_HTML}
+            ${renderEvolutionTreeHtml()}
           </div>
         </div>
       </div>

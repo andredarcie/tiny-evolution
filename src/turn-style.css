@@ -342,6 +342,7 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
+  min-height: 0;
 }
 
 .hud-objective,
@@ -382,6 +383,16 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+.hud-section-turn {
+  position: sticky;
+  bottom: calc(-10px - env(safe-area-inset-bottom, 0px));
+  z-index: 2;
+  margin: 0 -12px calc(-10px - env(safe-area-inset-bottom, 0px));
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(180deg, rgba(255, 250, 242, 0) 0%, rgba(255, 250, 242, 0.96) 18%, rgba(255, 250, 242, 0.99) 100%);
+  border-top: 1px solid rgba(104, 76, 46, 0.08);
 }
 
 .hud-actions-grid button {
@@ -435,6 +446,111 @@
 
 .hud-actions-grid .hud-tree:hover:not(:disabled) {
   background: #9b8062;
+}
+
+@media (max-height: 760px) {
+  .hud-topbar {
+    padding: 6px 10px;
+    padding-top: calc(6px + env(safe-area-inset-top, 0px));
+    gap: 6px;
+  }
+
+  .hud-title {
+    font-size: 13px;
+  }
+
+  .hud-stage-value {
+    font-size: 12px;
+  }
+
+  .hud-stage-label,
+  .hud-section-label,
+  .hud-stat-label {
+    font-size: 8px;
+  }
+
+  .hud-progress {
+    height: 3px;
+  }
+
+  .hud-panel {
+    gap: 6px;
+    padding: 8px 10px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    max-height: min(40dvh, 220px);
+  }
+
+  .hud-stats {
+    gap: 4px;
+  }
+
+  .hud-stat {
+    padding: 5px 3px;
+  }
+
+  .hud-stat-value {
+    font-size: 15px;
+  }
+
+  .hud-objective,
+  .hud-selection,
+  .hud-hint,
+  .hud-log,
+  .hud-objective-detail,
+  .hud-mode {
+    font-size: 12px;
+    line-height: 1.25;
+  }
+
+  .hud-objective-detail,
+  .hud-section-selection .hud-mode {
+    display: none;
+  }
+
+  .hud-actions-grid {
+    gap: 6px;
+  }
+
+  .hud-actions-grid button {
+    min-height: 40px;
+    padding: 10px 8px;
+    font-size: 13px;
+  }
+
+  .hud-section-turn {
+    bottom: calc(-8px - env(safe-area-inset-bottom, 0px));
+    margin: 0 -10px calc(-8px - env(safe-area-inset-bottom, 0px));
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+@media (max-height: 660px) {
+  .hud-panel {
+    max-height: min(44dvh, 240px);
+  }
+
+  .hud-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .hud-section-objective,
+  .hud-section-selection {
+    display: none;
+  }
+
+  .hud-actions-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hud-section-turn .hud-section-label {
+    display: none;
+  }
+
+  .hud-actions-grid button {
+    min-height: 38px;
+    padding: 9px 8px;
+    font-size: 12px;
+  }
 }
 
 /* ── Log ───────────────────────────────────────────────────────────────── */

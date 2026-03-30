@@ -1,6 +1,13 @@
 import type { TurnHUD } from './TurnHUD';
+import { random } from '../random';
+import {
+  EVOLUTION_BY_ID,
+  HUMAN_EVOLUTION_ID,
+  STAGES,
+  type Biome,
+  type EvolutionDefinition,
+} from './evolutionData';
 
-type Biome = 'ocean' | 'coast' | 'land';
 type ActionMode = 'idle' | 'expand' | 'seed';
 
 interface Colony {
@@ -18,151 +25,63 @@ interface Colony {
   gestatingUntilTurn: number | null;
 }
 
-interface StageDefinition {
-  label: string;
-  emoji: string;
-  objective: string;
-}
-
-interface EvolutionDefinition {
-  id: string;
-  name: string;
-  emoji: string;
-  allowedBiomes: Biome[];
-  worldStage: number;
-  next: Array<{
-    to: string;
-    biome: Biome;
-    minPopulation: number;
-  }>;
-}
-
 const GRID_SIZE = 8;
 const SEED_COST = 4;
-const STAGES: StageDefinition[] = [
-  {
-    label: '🦠 Bactérias Primitivas',
-    emoji: '🦠',
-    objective: 'Controle 4 tiles de oceano',
-  },
-  {
-    label: '🫧 Vida Simples',
-    emoji: '🫧',
-    objective: 'Leve a vida até a costa',
-  },
-  {
-    label: '🧽 Vida Complexa',
-    emoji: '🧽',
-    objective: 'Prepare uma colônia costeira para terra',
-  },
-  {
-    label: '🦎 Vida Terrestre',
-    emoji: '🦎',
-    objective: 'Estabeleça vida estável em terra',
-  },
-  {
-    label: '🧑 Humano',
-    emoji: '🧑',
-    objective: 'Vitória',
-  },
-];
+const HUMAN_PATH_PRIORITY_CHANCE = 0.8;
+const MIN_PARALLEL_HUMAN_PATHS_FOR_BRANCHING = 2;
 
-const EVOLUTION_PATH: EvolutionDefinition[] = [
-  { id: 'bacteria_primitiva', name: 'Bactéria Primitiva', emoji: '🦠', allowedBiomes: ['ocean'], worldStage: 0, next: [
-    { to: 'cianobacteria', biome: 'ocean', minPopulation: 1 },
-    { to: 'archaea', biome: 'ocean', minPopulation: 1 },
-  ] },
-  { id: 'archaea', name: 'Archaea', emoji: '🧫', allowedBiomes: ['ocean'], worldStage: 0, next: [
-    { to: 'protozoario', biome: 'ocean', minPopulation: 1 },
-  ] },
-  { id: 'cianobacteria', name: 'Cianobactéria', emoji: '🌿', allowedBiomes: ['ocean'], worldStage: 0, next: [
-    { to: 'protozoario', biome: 'ocean', minPopulation: 1 },
-    { to: 'alga_verde', biome: 'coast', minPopulation: 1 },
-    { to: 'alga_vermelha', biome: 'ocean', minPopulation: 1 },
-  ] },
-  { id: 'protozoario', name: 'Protozoário', emoji: '🫧', allowedBiomes: ['ocean', 'coast'], worldStage: 0, next: [
-    { to: 'ameba', biome: 'ocean', minPopulation: 1 },
-    { to: 'esponja', biome: 'ocean', minPopulation: 1 },
-    { to: 'fungo', biome: 'coast', minPopulation: 1 },
-  ] },
-  { id: 'ameba', name: 'Ameba', emoji: '🦠', allowedBiomes: ['ocean'], worldStage: 0, next: [] },
-  { id: 'alga_verde', name: 'Alga Verde', emoji: '🌱', allowedBiomes: ['ocean', 'coast'], worldStage: 1, next: [
-    { to: 'musgo', biome: 'coast', minPopulation: 1 },
-    { to: 'planta_vascular', biome: 'land', minPopulation: 1 },
-    { to: 'angiosperma', biome: 'land', minPopulation: 1 },
-  ] },
-  { id: 'alga_vermelha', name: 'Alga Vermelha', emoji: '🪸', allowedBiomes: ['ocean', 'coast'], worldStage: 1, next: [
-    { to: 'coral', biome: 'coast', minPopulation: 1 },
-  ] },
-  { id: 'esponja', name: 'Esponja', emoji: '🧽', allowedBiomes: ['ocean', 'coast'], worldStage: 1, next: [
-    { to: 'medusa', biome: 'ocean', minPopulation: 1 },
-    { to: 'anemona_do_mar', biome: 'coast', minPopulation: 1 },
-    { to: 'coral', biome: 'coast', minPopulation: 1 },
-    { to: 'verme_plano', biome: 'ocean', minPopulation: 1 },
-  ] },
-  { id: 'fungo', name: 'Fungo', emoji: '🍄', allowedBiomes: ['coast', 'land'], worldStage: 2, next: [] },
-  { id: 'verme_plano', name: 'Verme Plano', emoji: '🪱', allowedBiomes: ['ocean', 'coast'], worldStage: 1, next: [
-    { to: 'trilobita', biome: 'ocean', minPopulation: 1 },
-    { to: 'molusco', biome: 'coast', minPopulation: 1 },
-    { to: 'crustaceo', biome: 'coast', minPopulation: 1 },
-    { to: 'peixe', biome: 'ocean', minPopulation: 1 },
-    { to: 'anelideo', biome: 'ocean', minPopulation: 1 },
-    { to: 'nematodeo', biome: 'ocean', minPopulation: 1 },
-  ] },
-  { id: 'musgo', name: 'Musgo', emoji: '🌾', allowedBiomes: ['coast', 'land'], worldStage: 2, next: [
-    { to: 'planta_vascular', biome: 'land', minPopulation: 1 },
-  ] },
-  { id: 'medusa', name: 'Medusa', emoji: '🪼', allowedBiomes: ['ocean', 'coast'], worldStage: 1, next: [] },
-  { id: 'anemona_do_mar', name: 'Anêmona-do-mar', emoji: '🌺', allowedBiomes: ['ocean', 'coast'], worldStage: 1, next: [] },
-  { id: 'coral', name: 'Coral', emoji: '🪸', allowedBiomes: ['ocean', 'coast'], worldStage: 1, next: [] },
-  { id: 'trilobita', name: 'Trilobita', emoji: '🦐', allowedBiomes: ['ocean', 'coast'], worldStage: 1, next: [] },
-  { id: 'planta_vascular', name: 'Planta Vascular', emoji: '🌳', allowedBiomes: ['coast', 'land'], worldStage: 2, next: [
-    { to: 'angiosperma', biome: 'land', minPopulation: 1 },
-  ] },
-  { id: 'anelideo', name: 'Anelídeo', emoji: '🪱', allowedBiomes: ['ocean', 'coast', 'land'], worldStage: 1, next: [
-    { to: 'crustaceo', biome: 'coast', minPopulation: 1 },
-    { to: 'inseto', biome: 'land', minPopulation: 1 },
-  ] },
-  { id: 'nematodeo', name: 'Nematódeo', emoji: '🪱', allowedBiomes: ['ocean', 'coast', 'land'], worldStage: 1, next: [
-    { to: 'inseto', biome: 'land', minPopulation: 1 },
-    { to: 'aracnideo', biome: 'land', minPopulation: 1 },
-  ] },
-  { id: 'molusco', name: 'Molusco', emoji: '🐚', allowedBiomes: ['ocean', 'coast'], worldStage: 1, next: [
-    { to: 'cefalopode', biome: 'ocean', minPopulation: 1 },
-  ] },
-  { id: 'crustaceo', name: 'Crustáceo', emoji: '🦀', allowedBiomes: ['ocean', 'coast'], worldStage: 1, next: [] },
-  { id: 'inseto', name: 'Inseto', emoji: '🐛', allowedBiomes: ['land', 'coast'], worldStage: 2, next: [] },
-  { id: 'peixe', name: 'Peixe', emoji: '🐟', allowedBiomes: ['ocean', 'coast'], worldStage: 1, next: [
-    { to: 'tubarao', biome: 'ocean', minPopulation: 1 },
-    { to: 'anfibio', biome: 'coast', minPopulation: 1 },
-  ] },
-  { id: 'angiosperma', name: 'Angiosperma', emoji: '🌸', allowedBiomes: ['land', 'coast'], worldStage: 2, next: [] },
-  { id: 'cefalopode', name: 'Cefalópode', emoji: '🐙', allowedBiomes: ['ocean'], worldStage: 1, next: [] },
-  { id: 'aracnideo', name: 'Aracnídeo', emoji: '🕷️', allowedBiomes: ['land', 'coast'], worldStage: 2, next: [] },
-  { id: 'tubarao', name: 'Tubarão', emoji: '🦈', allowedBiomes: ['ocean'], worldStage: 1, next: [] },
-  { id: 'anfibio', name: 'Anfíbio', emoji: '🐸', allowedBiomes: ['coast', 'land'], worldStage: 2, next: [
-    { to: 'reptil', biome: 'land', minPopulation: 1 },
-  ] },
-  { id: 'reptil', name: 'Réptil', emoji: '🦎', allowedBiomes: ['land', 'coast'], worldStage: 3, next: [
-    { to: 'dinossauro', biome: 'land', minPopulation: 1 },
-    { to: 'ave', biome: 'land', minPopulation: 1 },
-    { to: 'mamifero', biome: 'land', minPopulation: 1 },
-  ] },
-  { id: 'dinossauro', name: 'Dinossauro', emoji: '🦕', allowedBiomes: ['land'], worldStage: 3, next: [] },
-  { id: 'ave', name: 'Ave', emoji: '🐦', allowedBiomes: ['land', 'coast'], worldStage: 3, next: [] },
-  { id: 'mamifero', name: 'Mamífero', emoji: '🐭', allowedBiomes: ['land', 'coast'], worldStage: 3, next: [
-    { to: 'primata', biome: 'land', minPopulation: 1 },
-  ] },
-  { id: 'primata', name: 'Primata', emoji: '🐒', allowedBiomes: ['land'], worldStage: 3, next: [
-    { to: 'hominideo', biome: 'land', minPopulation: 1 },
-  ] },
-  { id: 'hominideo', name: 'Hominídeo', emoji: '🦧', allowedBiomes: ['land'], worldStage: 3, next: [
-    { to: 'humano', biome: 'land', minPopulation: 1 },
-  ] },
-  { id: 'humano', name: 'Humano', emoji: '🧑', allowedBiomes: ['land'], worldStage: 4, next: [] },
-];
+function canReachEvolutionTarget(fromId: string, targetId: string, visited = new Set<string>()): boolean {
+  if (fromId === targetId) return true;
+  if (visited.has(fromId)) return false;
+  visited.add(fromId);
 
-const EVOLUTION_BY_ID = new Map(EVOLUTION_PATH.map((node) => [node.id, node]));
+  const form = EVOLUTION_BY_ID.get(fromId);
+  if (!form) return false;
+
+  return form.next.some((step) => canReachEvolutionTarget(step.to, targetId, visited));
+}
+
+function getEvolutionDistanceToTarget(fromId: string, targetId: string, visited = new Set<string>()): number | null {
+  if (fromId === targetId) return 0;
+  if (visited.has(fromId)) return null;
+  visited.add(fromId);
+
+  const form = EVOLUTION_BY_ID.get(fromId);
+  if (!form || form.next.length === 0) return null;
+
+  let bestDistance: number | null = null;
+  for (const step of form.next) {
+    const distance = getEvolutionDistanceToTarget(step.to, targetId, new Set(visited));
+    if (distance === null) continue;
+    const totalDistance = distance + 1;
+    if (bestDistance === null || totalDistance < bestDistance) {
+      bestDistance = totalDistance;
+    }
+  }
+
+  return bestDistance;
+}
+
+function choosePreferredEvolutionStep(
+  steps: Array<{ to: string; biome: Biome; minPopulation: number }>,
+  existingForms: Set<string>,
+): { to: string; biome: Biome; minPopulation: number } | null {
+  if (steps.length === 0) return null;
+  const ranked = steps
+    .map((step, index) => ({
+      step,
+      index,
+      isNovel: !existingForms.has(step.to),
+      distanceToHuman: getEvolutionDistanceToTarget(step.to, HUMAN_EVOLUTION_ID) ?? Number.POSITIVE_INFINITY,
+    }))
+    .sort((a, b) => {
+      if (a.distanceToHuman !== b.distanceToHuman) return a.distanceToHuman - b.distanceToHuman;
+      if (a.isNovel !== b.isNovel) return a.isNovel ? -1 : 1;
+      return a.index - b.index;
+    });
+
+  return ranked[0]?.step ?? null;
+}
 
 
 const BASE_MAP: Biome[][] = [
@@ -209,10 +128,15 @@ export class TurnGameScene {
   onResize(width: number, height: number): void {
     const isDesktop = width >= 980;
     const panelWidth = isDesktop ? 320 : 0;
+    const isShortMobileViewport = !isDesktop && height <= 760;
     // Topbar height: compact on mobile, standard on desktop
-    const topInset = isDesktop ? 96 : 52;
+    const topInset = isDesktop ? 96 : isShortMobileViewport ? 44 : 52;
     // Bottom panel reserve on mobile/tablet
-    const bottomInset = isDesktop ? 0 : Math.min(height * 0.28, 180);
+    const bottomInset = isDesktop
+      ? 0
+      : isShortMobileViewport
+        ? Math.min(height * 0.4, 240)
+        : Math.min(height * 0.28, 180);
     const sidePadding = isDesktop ? 28 : 8;
 
     const availableWidth = Math.max(200, width - panelWidth - sidePadding * 2);
@@ -315,11 +239,11 @@ export class TurnGameScene {
 
     this.pushLog(`A colônia em ${this.formatCellLabel(colony.x, colony.y)} evoluiu para ${nextEvolution.name}.`);
 
-    if (nextEvolution.id === 'humano') {
+    if (nextEvolution.id === HUMAN_EVOLUTION_ID) {
       this.gameWon = true;
       this.actionPoints = 0;
       this.selectedColonyId = colony.id;
-      this.pushLog('Vitória: a longa história da vida chegou ao primeiro humano.');
+      this.pushLog('Vitória: esta linhagem ancestral chegou ao Homo sapiens.');
     }
 
     this.mode = 'idle';
@@ -869,7 +793,7 @@ export class TurnGameScene {
 
   private buildHint(): string {
     if (this.gameWon) {
-      return 'A partida termina aqui: o objetivo do jogo era conduzir a vida até o primeiro humano.';
+      return 'A partida termina aqui: o objetivo do jogo era conduzir uma linhagem ancestral até o Homo sapiens.';
     }
     if (this.mode === 'expand') {
       return 'Clique em um tile vizinho destacado para criar uma nova colônia.';
@@ -890,7 +814,7 @@ export class TurnGameScene {
     }
     const nextEvolution = this.getNextEvolutionFor(selected);
     if (!selected || !nextEvolution) {
-      return 'Selecione uma colônia e siga a linha evolutiva principal até o primeiro humano.';
+      return 'Selecione uma colônia e siga a linha evolutiva principal até o Homo sapiens.';
     }
 
     const requiredBiome = this.getBiomeLabel(nextEvolution.requiredBiome);
@@ -899,7 +823,7 @@ export class TurnGameScene {
 
   private buildObjectiveDetail(selected: Colony | null): string {
     if (this.gameWon) {
-      return 'A jornada da vida foi concluída no primeiro humano.';
+      return 'A jornada desta linhagem foi concluída no Homo sapiens.';
     }
 
     if (!selected) {
@@ -976,10 +900,44 @@ export class TurnGameScene {
     );
     const available = current.next
       .filter((step) => step.biome === biome && colony.population >= step.minPopulation);
+    const protectedAvailable = available.filter((step) => this.isEvolutionStepSafe(colony, step));
 
-    // Prefer forms not yet on the board, pick the first novel one in list order
-    const novel = available.filter((step) => !existingForms.has(step.to));
-    const chosen = (novel.length > 0 ? novel : available).at(0);
+    const humanPathAvailable = protectedAvailable.filter((step) => canReachEvolutionTarget(step.to, HUMAN_EVOLUTION_ID));
+    const missingHumanPathStep = humanPathAvailable.find((step) => !existingForms.has(step.to));
+
+    if (missingHumanPathStep) {
+      const next = EVOLUTION_BY_ID.get(missingHumanPathStep.to);
+      if (!next) return null;
+
+      return {
+        ...next,
+        requiredBiome: missingHumanPathStep.biome,
+        minPopulation: missingHumanPathStep.minPopulation,
+      };
+    }
+
+    const alternateAvailable = protectedAvailable.filter((step) => !canReachEvolutionTarget(step.to, HUMAN_EVOLUTION_ID));
+    const currentDistance = getEvolutionDistanceToTarget(colony.lifeFormId, HUMAN_EVOLUTION_ID) ?? Number.POSITIVE_INFINITY;
+    const canBranchAwayFromHumanPath =
+      this.getHumanReachableColonyCount(colony.id, currentDistance) >= MIN_PARALLEL_HUMAN_PATHS_FOR_BRANCHING;
+    let chosen =
+      canBranchAwayFromHumanPath && humanPathAvailable.length > 0 && alternateAvailable.length > 0
+        ? (random() < HUMAN_PATH_PRIORITY_CHANCE
+            ? choosePreferredEvolutionStep(humanPathAvailable, existingForms)
+            : choosePreferredEvolutionStep(alternateAvailable, existingForms))
+        : null;
+
+    if (!chosen) {
+      chosen =
+        choosePreferredEvolutionStep(humanPathAvailable, existingForms)
+        ?? (canBranchAwayFromHumanPath ? choosePreferredEvolutionStep(alternateAvailable, existingForms) : null)
+        ?? choosePreferredEvolutionStep(protectedAvailable, existingForms);
+    }
+
+    if (!canBranchAwayFromHumanPath && chosen && !canReachEvolutionTarget(chosen.to, HUMAN_EVOLUTION_ID)) {
+      return null;
+    }
+
     if (!chosen) return null;
 
     const next = EVOLUTION_BY_ID.get(chosen.to);
@@ -990,6 +948,35 @@ export class TurnGameScene {
       requiredBiome: chosen.biome,
       minPopulation: chosen.minPopulation,
     };
+  }
+
+  private isEvolutionStepSafe(
+    colony: Colony,
+    step: { to: string; biome: Biome; minPopulation: number },
+  ): boolean {
+    if (canReachEvolutionTarget(step.to, HUMAN_EVOLUTION_ID)) return true;
+    if (!canReachEvolutionTarget(colony.lifeFormId, HUMAN_EVOLUTION_ID)) return true;
+
+    const currentDistance = getEvolutionDistanceToTarget(colony.lifeFormId, HUMAN_EVOLUTION_ID);
+    if (currentDistance === null) return true;
+
+    return this.getHumanReachableColonyCount(colony.id, currentDistance) > 0;
+  }
+
+  private getHumanReachableColonyCount(excludeColonyId: number | null = null, maxDistanceToHuman = Number.POSITIVE_INFINITY): number {
+    let count = 0;
+
+    for (const colony of this.colonies.values()) {
+      if (excludeColonyId !== null && colony.id === excludeColonyId) continue;
+      if (!this.isColonyEstablished(colony)) continue;
+      const distance = getEvolutionDistanceToTarget(colony.lifeFormId, HUMAN_EVOLUTION_ID);
+      if (distance === null || distance > maxDistanceToHuman) continue;
+      if (canReachEvolutionTarget(colony.lifeFormId, HUMAN_EVOLUTION_ID)) {
+        count += 1;
+      }
+    }
+
+    return count;
   }
 
   private getFloatingMenuAnchor(colony: Colony): { x: number; y: number; side: 'left' | 'right' } {
