@@ -1348,7 +1348,7 @@ export class TurnGameScene {
     }
 
     if (!selected) {
-      return `Biomassa: ${this.getBiomassPool()} — Adaptação total: ${this.getTotalAdaptationPoints()} — População total: ${this.getTotalPopulation()}`;
+      return `Biomassa: ${this.getBiomassPool()} â€” AdaptaÃ§Ã£o total: ${this.getTotalAdaptationPoints()} â€” PopulaÃ§Ã£o total: ${this.getTotalPopulation()}`;
     }
 
     if (!this.isColonyEstablished(selected)) {
