@@ -1240,6 +1240,29 @@
   cursor: pointer;
 }
 
+.game-over-quote {
+  margin: 0;
+  padding: 12px 14px;
+  border-left: 4px solid rgba(138, 58, 45, 0.35);
+  background: rgba(138, 58, 45, 0.06);
+  border-radius: 12px;
+  color: #5f452b;
+  font-size: 15px;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+.game-over-quote-author {
+  display: block;
+  margin-top: 8px;
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #86694b;
+}
+
 @media (min-width: 980px) {
   .colony-info-card {
     position: absolute;

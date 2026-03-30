@@ -417,6 +417,7 @@ describe('TurnGameScene evolution priority', () => {
     expect(getColonyAt(scene, child.x, child.y)).toBeNull();
     expect((scene as any).gameOver).toBe(true);
     expect((scene as any).gameOverTitle).toContain('Fim da vida');
+    expect((scene as any).gameOverQuote.length).toBeGreaterThan(0);
     expect((scene as any).naturalSelectionSummaryLines.some((line: string) => line.includes('expansao abortada'))).toBe(true);
   });
 });

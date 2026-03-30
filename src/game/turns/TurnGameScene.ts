@@ -54,6 +54,30 @@ interface ExtinctionBurst {
   framesLeft: number;
 }
 
+interface GameOverQuote {
+  text: string;
+  author: string;
+}
+
+const GAME_OVER_QUOTES: GameOverQuote[] = [
+  {
+    text: 'A extinção das formas menos aperfeiçoadas é uma consequência da seleção natural.',
+    author: 'Charles Darwin',
+  },
+  {
+    text: 'Da guerra da natureza, da fome e da morte, surgem também as grandes viradas da vida.',
+    author: 'Charles Darwin',
+  },
+  {
+    text: 'Quando uma espécie se extingue, é provável que outras extinções venham em seguida, talvez até uma avalanche.',
+    author: 'Stuart L. Pimm',
+  },
+  {
+    text: 'As espécies deveriam desaparecer raramente; o que vemos hoje é uma taxa de extinção centenas de vezes maior.',
+    author: 'Stuart L. Pimm',
+  },
+];
+
 function canReachEvolutionTarget(fromId: string, targetId: string, visited = new Set<string>()): boolean {
   if (fromId === targetId) return true;
   if (visited.has(fromId)) return false;
@@ -147,6 +171,8 @@ export class TurnGameScene {
   private readonly floatingDeltas: FloatingDelta[] = [];
   private readonly extinctionBursts: ExtinctionBurst[] = [];
   private gameOverTitle = '';
+  private gameOverQuote = '';
+  private gameOverQuoteAuthor = '';
   private gameOverDetail = '';
   private cellSize = 0;
   private offsetX = 0;
@@ -190,6 +216,8 @@ export class TurnGameScene {
     this.floatingDeltas.length = 0;
     this.extinctionBursts.length = 0;
     this.gameOverTitle = '';
+    this.gameOverQuote = '';
+    this.gameOverQuoteAuthor = '';
     this.gameOverDetail = '';
     this.seedOpeningColonies();
     this.startTurn();
@@ -736,6 +764,7 @@ export class TurnGameScene {
   }
 
   private triggerGameOver(): void {
+    const quote = GAME_OVER_QUOTES[Math.floor(random() * GAME_OVER_QUOTES.length)] ?? GAME_OVER_QUOTES[0];
     this.gameOver = true;
     this.mode = 'idle';
     this.actionPoints = 0;
@@ -743,6 +772,8 @@ export class TurnGameScene {
     this.actedColonyIds.clear();
     this.naturalSelectionQueue = [];
     this.gameOverTitle = 'Fim da vida na Terra';
+    this.gameOverQuote = quote.text;
+    this.gameOverQuoteAuthor = quote.author;
     this.gameOverDetail = 'Sem linhagens remanescentes, a biosfera colapsou. Na história real da Terra, extinções em massa eliminaram a maior parte das espécies, mas a vida persistiu porque alguns ramos sobreviveram. Nesta partida, nenhuma colônia resistiu para reconstruir o ecossistema.';
     this.naturalSelectionDetail = 'Nenhuma colonia sobreviveu. A historia evolutiva foi interrompida.';
     this.pushLog('Game over: a ultima linhagem desapareceu e a vida na Terra entrou em colapso.');
@@ -1218,6 +1249,8 @@ export class TurnGameScene {
       naturalSelectionSummaryLines: this.naturalSelectionSummaryLines,
       gameOverVisible: this.gameOver,
       gameOverTitle: this.gameOverTitle,
+      gameOverQuote: this.gameOverQuote,
+      gameOverQuoteAuthor: this.gameOverQuoteAuthor,
       gameOverDetail: this.gameOverDetail,
     });
   }

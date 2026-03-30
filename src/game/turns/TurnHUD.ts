@@ -45,6 +45,8 @@ export interface TurnHUDState {
   naturalSelectionSummaryLines: string[];
   gameOverVisible: boolean;
   gameOverTitle: string;
+  gameOverQuote: string;
+  gameOverQuoteAuthor: string;
   gameOverDetail: string;
 }
 
@@ -96,6 +98,7 @@ export class TurnHUD {
   private naturalSelectionSummaryBodyEl: HTMLElement;
   private gameOverModalEl: HTMLElement;
   private gameOverTitleEl: HTMLElement;
+  private gameOverQuoteEl: HTMLElement;
   private gameOverDetailEl: HTMLElement;
   private currentColonyDef: EvolutionDefinition | null = null;
 
@@ -211,6 +214,7 @@ export class TurnHUD {
             </div>
           </div>
           <div class="colony-info-body">
+            <blockquote class="game-over-quote" id="game-over-quote"></blockquote>
             <p class="colony-info-description" id="game-over-detail"></p>
             <button class="hud-end-turn game-over-restart" id="game-over-restart">Reiniciar jogo</button>
           </div>
@@ -289,6 +293,7 @@ export class TurnHUD {
     this.naturalSelectionSummaryBodyEl = this.root.querySelector('#natural-selection-summary-body')!;
     this.gameOverModalEl = this.root.querySelector('#game-over-modal')!;
     this.gameOverTitleEl = this.root.querySelector('#game-over-title')!;
+    this.gameOverQuoteEl = this.root.querySelector('#game-over-quote')!;
     this.gameOverDetailEl = this.root.querySelector('#game-over-detail')!;
     this.logEl = this.root.querySelector('#hud-log')!;
     this.endTurnBtn = this.root.querySelector('#hud-end-turn')!;
@@ -344,6 +349,9 @@ export class TurnHUD {
       : '<div class="hud-log-line">Nenhuma perda registrada.</div>';
     this.gameOverModalEl.classList.toggle('hidden', !state.gameOverVisible);
     this.gameOverTitleEl.textContent = state.gameOverTitle;
+    this.gameOverQuoteEl.innerHTML = state.gameOverQuote
+      ? `&ldquo;${escapeHtml(state.gameOverQuote)}&rdquo;<span class="game-over-quote-author">— ${escapeHtml(state.gameOverQuoteAuthor)}</span>`
+      : '';
     this.gameOverDetailEl.textContent = state.gameOverDetail;
     this.actionsEl.textContent = String(state.actionPoints);
     this.biomassEl.textContent = String(state.biomass);
