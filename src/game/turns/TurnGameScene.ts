@@ -30,6 +30,7 @@ interface Colony {
   fortified: boolean;
   busyUntilTurn: number;
   consolidatingUntilTurn: number | null;
+  consolidationBiomassPending: boolean;
   gestatingUntilTurn: number | null;
   createdTurn: number;
   parentColonyId: number | null;
@@ -157,7 +158,6 @@ export class TurnGameScene {
   private turn = 1;
   private phase: TurnPhase = 'player';
   private actionPoints = 0;
-  private biomass = 6;
   private stageIndex = 0;
   private gameWon = false;
   private gameOver = false;
@@ -202,7 +202,6 @@ export class TurnGameScene {
     this.turn = 1;
     this.phase = 'player';
     this.actionPoints = 0;
-    this.biomass = 6;
     this.stageIndex = 0;
     this.gameWon = false;
     this.gameOver = false;
@@ -353,9 +352,7 @@ export class TurnGameScene {
     if (this.phase !== 'player' || this.gameOver) return;
     const colony = this.getSelectedColony();
     if (!colony || !this.canColonyAct(colony)) return;
-
-    colony.busyUntilTurn = this.turn + 2;
-    colony.consolidatingUntilTurn = this.turn + 2;
+    colony.consolidationBiomassPending = true;
     this.consumeColonyAction(colony.id);
     this.mode = 'idle';
     this.selectNextAvailableColony(colony.id);
@@ -410,9 +407,7 @@ export class TurnGameScene {
     const colony = this.getSelectedColony();
     if (!colony || !this.isTerminalColony(colony) || !this.isColonyEstablished(colony)) return;
 
-    const biomassReward = Math.max(2, colony.population + 1);
     const adaptReward = Math.max(1, colony.adaptationPoints);
-    this.biomass += biomassReward;
 
     // Distribute adaptation points to neighboring colonies
     const neighbors = this.getNeighborColonies(colony);
@@ -428,7 +423,7 @@ export class TurnGameScene {
     this.colonies.delete(colony.id);
     this.selectedColonyId = null;
     this.selectNextAvailableColony(null);
-    this.pushLog(`${name} em ${cell} foi decomposta: +${biomassReward} biomassa${neighbors.length > 0 ? ', adaptação redistribuída' : ''}.`);
+    this.pushLog(`${name} em ${cell} foi decomposta${neighbors.length > 0 ? ': adaptacao redistribuida.' : '.'}`);
     this.mode = 'idle';
     this.updateHUD();
   }
@@ -436,7 +431,7 @@ export class TurnGameScene {
   startExpandMode(): void {
     if (this.phase !== 'player' || this.gameOver) return;
     const colony = this.getSelectedColony();
-    if (!colony || !this.canColonyAct(colony) || this.biomass <= 0) return;
+    if (!colony || !this.canColonyAct(colony) || colony.biomass <= 0) return;
     this.mode = 'expand';
     this.pushLog('Modo expandir ativo. Clique em um tile vizinho válido.');
     this.updateHUD();
@@ -444,7 +439,7 @@ export class TurnGameScene {
 
   startSeedMode(): void {
     if (this.phase !== 'player' || this.gameOver) return;
-    if (this.gameWon || this.biomass < SEED_COST) return;
+    if (this.gameWon || this.getBiomassPool() < SEED_COST) return;
     this.mode = 'seed';
     this.selectedColonyId = null;
     this.pushLog(`Semear vida (custo: ${SEED_COST} biomassa). Clique em um tile de oceano livre.`);
@@ -452,7 +447,7 @@ export class TurnGameScene {
   }
 
   private trySeedAt(x: number, y: number): void {
-    if (this.biomass < SEED_COST) {
+    if (this.getBiomassPool() < SEED_COST) {
       this.pushLog('Biomassa insuficiente para semear.');
       this.mode = 'idle';
       this.updateHUD();
@@ -473,7 +468,7 @@ export class TurnGameScene {
       return;
     }
 
-    this.biomass -= SEED_COST;
+    this.spendBiomassPool(SEED_COST);
     this.addColony(x, y, { population: 2, lifeFormId: 'bacteria_primitiva' });
     this.mode = 'idle';
     this.pushLog(`Nova vida semeada em ${this.formatCellLabel(x, y)}. Uma nova Bactéria Primitiva surgiu no oceano.`);
@@ -493,6 +488,7 @@ export class TurnGameScene {
     if (this.gameWon || this.gameOver || this.phase !== 'player') return;
     const previousSelectedColonyId = this.selectedColonyId;
     this.mode = 'idle';
+    this.resolveImmediateConsolidationRewards();
     this.resolveProduction();
     this.checkProgression();
     if (this.gameWon) {
@@ -524,6 +520,7 @@ export class TurnGameScene {
       fortified: options?.fortified ?? false,
       busyUntilTurn: options?.busyUntilTurn ?? 0,
       consolidatingUntilTurn: options?.consolidatingUntilTurn ?? null,
+      consolidationBiomassPending: options?.consolidationBiomassPending ?? false,
       gestatingUntilTurn: options?.gestatingUntilTurn ?? null,
       createdTurn: options?.createdTurn ?? this.turn,
       parentColonyId: options?.parentColonyId ?? null,
@@ -558,15 +555,18 @@ export class TurnGameScene {
         colony.parentColonyId = null;
         this.pushLog(`A nova colônia em ${this.formatCellLabel(colony.x, colony.y)} terminou a expansão e agora está estável.`);
       }
+    }
+  }
 
-      if (colony.consolidatingUntilTurn !== null && this.turn >= colony.consolidatingUntilTurn) {
-        colony.consolidatingUntilTurn = null;
-        colony.population += 1;
-        colony.biomass += 1;
-        colony.fortified = true;
-        this.biomass += 2;
-        this.pushLog(`A consolidação em ${this.formatCellLabel(colony.x, colony.y)} foi concluída: +1 população, +1 biomassa local e +2 biomassa.`);
-      }
+  private resolveImmediateConsolidationRewards(): void {
+    for (const colony of this.colonies.values()) {
+      if (!colony.consolidationBiomassPending) continue;
+      colony.consolidationBiomassPending = false;
+      colony.consolidatingUntilTurn = null;
+      colony.biomass += 2;
+      colony.population += 1;
+      colony.fortified = true;
+      this.pushLog(`Consolidacao em ${this.formatCellLabel(colony.x, colony.y)}: +2 biomassa local e +1 populacao antes da Selecao Natural.`);
     }
   }
 
@@ -811,18 +811,13 @@ export class TurnGameScene {
   }
 
   private resolveProduction(): void {
-    let biomassGain = 0;
-
     for (const colony of this.colonies.values()) {
       if (!this.isColonyEstablished(colony)) continue;
 
       colony.fortified = false;
-      biomassGain += 1;
       colony.adaptationPoints += 1;
 
-      // Terminal colonies act as autonomous ecosystems: extra biomass + feed neighbors
       if (this.isTerminalColony(colony)) {
-        biomassGain += 1;
         const neighbors = this.getNeighborColonies(colony);
         for (const neighbor of neighbors) {
           if (!this.isTerminalColony(neighbor)) {
@@ -831,8 +826,7 @@ export class TurnGameScene {
         }
       }
     }
-    this.biomass += biomassGain;
-    this.pushLog(`Fim do turno: +${biomassGain} biomassa.`);
+    this.pushLog('Fim do turno: adaptações ecológicas foram redistribuídas.');
   }
 
   private checkProgression(): void {
@@ -1016,7 +1010,6 @@ export class TurnGameScene {
       return;
     }
 
-    this.biomass -= 1;
     colony.biomass -= 1;
     this.addColony(x, y, {
       population: 1,
@@ -1024,16 +1017,16 @@ export class TurnGameScene {
       lifeFormId: colony.lifeFormId,
       coastAdapted: colony.coastAdapted,
       landAdapted: colony.landAdapted,
-      busyUntilTurn: this.turn + 3,
-      gestatingUntilTurn: this.turn + 3,
+      busyUntilTurn: this.turn + 2,
+      gestatingUntilTurn: this.turn + 2,
       createdTurn: this.turn,
       parentColonyId: colony.id,
     });
-    colony.busyUntilTurn = this.turn + 3;
+    colony.busyUntilTurn = this.turn + 2;
     this.consumeColonyAction(colony.id);
     this.mode = 'idle';
     this.selectNextAvailableColony(colony.id);
-    this.pushLog(`A expansão para ${this.formatCellLabel(x, y)} começou. A nova colônia ficará instável por 2 turnos.`);
+    this.pushLog(`A expansão para ${this.formatCellLabel(x, y)} começou. A nova colônia ficará instável por 1 turno.`);
     this.updateHUD();
   }
 
@@ -1057,7 +1050,7 @@ export class TurnGameScene {
   }
 
   private hasExpandTarget(colony: Colony | null): boolean {
-    if (!colony || this.biomass <= 0 || colony.biomass <= 0 || !this.canColonyAct(colony)) return false;
+    if (!colony || colony.biomass <= 0 || !this.canColonyAct(colony)) return false;
 
     const candidates = [
       { x: colony.x + 1, y: colony.y },
@@ -1089,6 +1082,34 @@ export class TurnGameScene {
       total += colony.adaptationPoints;
     }
     return total;
+  }
+
+  private getBiomassPool(): number {
+    let total = 0;
+    for (const colony of this.colonies.values()) {
+      total += colony.biomass;
+    }
+    return total;
+  }
+
+  private spendBiomassPool(amount: number): boolean {
+    if (amount <= 0) return true;
+    if (this.getBiomassPool() < amount) return false;
+
+    let remaining = amount;
+    const donors = [...this.colonies.values()].sort((a, b) => {
+      if (b.biomass !== a.biomass) return b.biomass - a.biomass;
+      return a.id - b.id;
+    });
+
+    for (const colony of donors) {
+      if (remaining <= 0) break;
+      const spent = Math.min(colony.biomass, remaining);
+      colony.biomass -= spent;
+      remaining -= spent;
+    }
+
+    return remaining === 0;
   }
 
   private getSelectedColony(): Colony | null {
@@ -1215,7 +1236,7 @@ export class TurnGameScene {
       turn: this.turn,
       phaseLabel,
       actionPoints: this.actionPoints,
-      biomass: this.biomass,
+      biomass: this.getBiomassPool(),
       adaptation: selected?.adaptationPoints ?? this.getTotalAdaptationPoints(),
       stageLabel: `${leadEvolution.emoji} ${'name' in leadEvolution ? leadEvolution.name : leadEvolution.label.replace(/^.\s*/, '')}`,
       objective,
@@ -1232,7 +1253,7 @@ export class TurnGameScene {
       adaptBlockedReason,
       canExpand,
       canDecompose,
-      canSeed: isPlayerPhase && !this.gameWon && this.biomass >= SEED_COST && this.mode === 'idle',
+      canSeed: isPlayerPhase && !this.gameWon && this.getBiomassPool() >= SEED_COST && this.mode === 'idle',
       canEndTurn: isPlayerPhase && !this.gameWon,
       endTurnLabel: this.gameWon ? 'Vitória alcançada' : 'Encerrar turno',
       showCancel: isPlayerPhase && (this.mode === 'expand' || this.mode === 'seed'),
@@ -1302,15 +1323,12 @@ export class TurnGameScene {
     if (selected && !this.isColonyEstablished(selected)) {
       return `A colônia em ${this.formatCellLabel(selected.x, selected.y)} ainda está se formando e ficará pronta no turno ${selected.gestatingUntilTurn}.`;
     }
-    if (selected && selected.consolidatingUntilTurn !== null) {
-      return `A colônia em ${this.formatCellLabel(selected.x, selected.y)} está consolidando e concluirá no turno ${selected.consolidatingUntilTurn}.`;
-    }
     if (selected && this.isTerminalColony(selected)) {
       const neighbors = this.getNeighborColonies(selected).filter(n => !this.isTerminalColony(n));
       const support = neighbors.length > 0
         ? `Sustenta ${neighbors.length} colônia${neighbors.length > 1 ? 's' : ''} vizinha${neighbors.length > 1 ? 's' : ''} com adaptação extra.`
         : 'Posicione colônias ativas ao redor para receber adaptação extra.';
-      return `Ecossistema autônomo: +2 biomassa/turno. ${support} Pode ser decomposta para liberar o tile.`;
+      return `Ecossistema autônomo: ${support} Pode ser decomposta para liberar o tile.`;
     }
     const nextEvolution = this.getNextEvolutionFor(selected);
     if (!selected || !nextEvolution) {
@@ -1330,15 +1348,11 @@ export class TurnGameScene {
     }
 
     if (!selected) {
-      return `Biomassa: ${this.biomass} — Adaptação total: ${this.getTotalAdaptationPoints()} — População total: ${this.getTotalPopulation()}`;
+      return `Biomassa: ${this.getBiomassPool()} � Adapta��o total: ${this.getTotalAdaptationPoints()} � Popula��o total: ${this.getTotalPopulation()}`;
     }
 
     if (!this.isColonyEstablished(selected)) {
       return `Expansão em andamento. Essa nova colônia só poderá agir a partir do turno ${selected.gestatingUntilTurn}.`;
-    }
-
-    if (selected.consolidatingUntilTurn !== null) {
-      return `Consolidação em andamento. Ao concluir no turno ${selected.consolidatingUntilTurn}, ela ganhará +1 população, +1 biomassa local e +2 biomassa.`;
     }
 
     const nextEvolution = this.getNextEvolutionFor(selected);
@@ -1357,9 +1371,6 @@ export class TurnGameScene {
   private getColonyStatusText(colony: Colony): string {
     if (!this.isColonyEstablished(colony)) {
       return ` — expandindo até T${colony.gestatingUntilTurn}`;
-    }
-    if (colony.consolidatingUntilTurn !== null) {
-      return ` — consolidando até T${colony.consolidatingUntilTurn}`;
     }
     if (this.isColonyBusy(colony)) {
       return ` — ocupada até T${colony.busyUntilTurn}`;
@@ -1509,7 +1520,7 @@ export class TurnGameScene {
       phase: this.phase,
       gameOver: this.gameOver,
       actionPoints: this.actionPoints,
-      biomass: this.biomass,
+      biomass: this.getBiomassPool(),
       selectedColonyId: this.selectedColonyId,
       logLines: [...this.logLines],
       colonies: [...this.colonies.values()].map((colony) => ({
@@ -1525,3 +1536,6 @@ export class TurnGameScene {
     };
   }
 }
+
+
+

@@ -326,7 +326,7 @@ describe('TurnGameScene evolution priority', () => {
     expect(event.detail.includes('bioma errado')).toBe(true);
   });
 
-  it('only increases local biomass when consolidation completes', () => {
+  it('gives +2 local biomass on end turn before natural selection when consolidating', () => {
     const scene = createScene();
     const colony = getSelectedColony(scene);
 
@@ -336,10 +336,23 @@ describe('TurnGameScene evolution priority', () => {
 
     scene.endTurn();
     flushNaturalSelection(scene);
+
+    expect(colony.biomass).toBe(4);
+  });
+
+  it('keeps a consolidating colony selectable on the next turn', () => {
+    const scene = createScene();
+    const colony = getSelectedColony(scene);
+
+    setSelectedColony(scene, colony);
+    scene.performConsolidate();
     scene.endTurn();
     flushNaturalSelection(scene);
 
-    expect(colony.biomass).toBe(2);
+    expect((scene as any).turn).toBe(2);
+    expect((scene as any).turnStartColonyIds.has(colony.id)).toBe(true);
+    expect((scene as any).isColonyBusy(colony)).toBe(false);
+    expect((scene as any).canColonyAct(colony)).toBe(true);
   });
 
   it('spends parent biomass and gives the new colony 1 local biomass on expansion', () => {
@@ -355,6 +368,24 @@ describe('TurnGameScene evolution priority', () => {
     expect(colony.biomass).toBe(2);
     expect(expanded).toBeTruthy();
     expect(expanded.biomass).toBe(1);
+  });
+
+  it('uses only the sum of local biomass when seeding a new colony', () => {
+    const scene = createScene();
+    const colonies = (scene as any).getDebugState().colonies as Array<{ id: number }>;
+    const first = (scene as any).colonies.get(colonies[0].id);
+    const second = (scene as any).colonies.get(colonies[1].id);
+    const third = (scene as any).colonies.get(colonies[2].id);
+
+    first.biomass = 2;
+    second.biomass = 1;
+    third.biomass = 1;
+
+    scene.startSeedMode();
+    (scene as any).trySeedAt(0, 0);
+
+    expect((scene as any).getDebugState().biomass).toBe(2);
+    expect(getColonyAt(scene, 0, 0)?.biomass).toBe(2);
   });
 
   it('natural selection removes 1 local biomass from older colonies but skips colonies created this turn', () => {
