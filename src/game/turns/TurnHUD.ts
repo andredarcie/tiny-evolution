@@ -1,7 +1,17 @@
-﻿import { renderEvolutionTreeHtml } from './evolutionData';
+﻿import { renderEvolutionTreeHtml, EVOLUTION_BY_ID, type EvolutionDefinition } from './evolutionData';
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
 
 export interface TurnHUDState {
   turn: number;
+  phaseLabel: string;
   actionPoints: number;
   biomass: number;
   adaptation: number;
@@ -27,6 +37,15 @@ export interface TurnHUDState {
   floatingMenuY: number;
   floatingMenuSide: 'left' | 'right';
   floatingCancelVisible: boolean;
+  selectedColonyName: string;
+  selectedColonyDef: EvolutionDefinition | null;
+  phaseBannerTitle: string;
+  phaseBannerDetail: string;
+  naturalSelectionSummaryVisible: boolean;
+  naturalSelectionSummaryLines: string[];
+  gameOverVisible: boolean;
+  gameOverTitle: string;
+  gameOverDetail: string;
 }
 
 export type HUDActionHandlers = {
@@ -37,6 +56,8 @@ export type HUDActionHandlers = {
   onSeed: () => void;
   onEndTurn: () => void;
   onCancel: () => void;
+  onCloseNaturalSelectionSummary: () => void;
+  onRestart: () => void;
 };
 
 export class TurnHUD {
@@ -66,6 +87,17 @@ export class TurnHUD {
   private floatingCancelBtn: HTMLButtonElement;
   private treeModalEl: HTMLElement;
   private treeModalCloseBtn: HTMLButtonElement;
+  private colonyInfoModalEl: HTMLElement;
+  private colonyInfoBodyEl: HTMLElement;
+  private phaseBannerEl: HTMLElement;
+  private phaseBannerTitleEl: HTMLElement;
+  private phaseBannerDetailEl: HTMLElement;
+  private naturalSelectionSummaryEl: HTMLElement;
+  private naturalSelectionSummaryBodyEl: HTMLElement;
+  private gameOverModalEl: HTMLElement;
+  private gameOverTitleEl: HTMLElement;
+  private gameOverDetailEl: HTMLElement;
+  private currentColonyDef: EvolutionDefinition | null = null;
 
   constructor(container: HTMLElement, handlers: HUDActionHandlers) {
     this.root = document.createElement('div');
@@ -86,19 +118,31 @@ export class TurnHUD {
         <div class="hud-progress-fill" id="hud-progress-fill"></div>
       </div>
 
+      <div class="hud-phase-banner hidden" id="hud-phase-banner">
+        <div class="hud-phase-banner-title" id="hud-phase-banner-title"></div>
+        <div class="hud-phase-banner-detail" id="hud-phase-banner-detail"></div>
+      </div>
+
       <div class="floating-action-menu floating-right hidden" id="floating-action-menu">
+        <div class="floating-menu-title" id="floating-menu-title">
+          <span id="floating-menu-title-text"></span>
+          <button class="floating-info-btn" id="floating-info-btn" aria-label="Curiosidades científicas">ⓘ</button>
+        </div>
         <button id="floating-consolidate">
           <span class="action-icon icon-consolidate" aria-hidden="true"></span>
           <span>Consolidar</span>
+          <kbd class="action-kbd">C</kbd>
         </button>
         <button id="floating-adapt">
           <span class="action-icon icon-adapt" aria-hidden="true"></span>
           <span>Adaptar</span>
+          <kbd class="action-kbd">A</kbd>
         </button>
         <div class="floating-action-reason hidden" id="floating-adapt-reason"></div>
         <button id="floating-expand">
           <span class="action-icon icon-expand" aria-hidden="true"></span>
           <span>Expandir</span>
+          <kbd class="action-kbd">E</kbd>
         </button>
         <button id="floating-decompose">
           <span class="action-icon icon-decompose" aria-hidden="true"></span>
@@ -125,6 +169,50 @@ export class TurnHUD {
           </div>
           <div class="tree-modal-content">
             ${renderEvolutionTreeHtml()}
+          </div>
+        </div>
+      </div>
+
+      <div class="colony-info-modal hidden" id="colony-info-modal">
+        <div class="colony-info-backdrop" id="colony-info-backdrop"></div>
+        <div class="colony-info-card" role="dialog" aria-modal="true">
+          <div class="colony-info-header" id="colony-info-header">
+            <div>
+              <div class="colony-info-kicker" id="colony-info-era"></div>
+              <h2 class="colony-info-title" id="colony-info-name"></h2>
+            </div>
+            <button class="colony-info-close" id="colony-info-close" aria-label="Fechar">✕</button>
+          </div>
+          <div class="colony-info-body" id="colony-info-body"></div>
+        </div>
+      </div>
+
+      <div class="colony-info-modal hidden" id="natural-selection-summary-modal">
+        <div class="colony-info-backdrop" id="natural-selection-summary-backdrop"></div>
+        <div class="colony-info-card" role="dialog" aria-modal="true">
+          <div class="colony-info-header">
+            <div>
+              <div class="colony-info-kicker">selecao natural</div>
+              <h2 class="colony-info-title">Resumo das perdas</h2>
+            </div>
+            <button class="colony-info-close" id="natural-selection-summary-close" aria-label="Fechar">Fechar</button>
+          </div>
+          <div class="colony-info-body" id="natural-selection-summary-body"></div>
+        </div>
+      </div>
+
+      <div class="colony-info-modal hidden" id="game-over-modal">
+        <div class="colony-info-backdrop"></div>
+        <div class="colony-info-card" role="dialog" aria-modal="true">
+          <div class="colony-info-header">
+            <div>
+              <div class="colony-info-kicker">game over</div>
+              <h2 class="colony-info-title" id="game-over-title"></h2>
+            </div>
+          </div>
+          <div class="colony-info-body">
+            <p class="colony-info-description" id="game-over-detail"></p>
+            <button class="hud-end-turn game-over-restart" id="game-over-restart">Reiniciar jogo</button>
           </div>
         </div>
       </div>
@@ -166,7 +254,7 @@ export class TurnHUD {
           <div class="hud-actions-grid">
             <button id="hud-tree" class="hud-tree">Árvore evolutiva completa</button>
             <button id="hud-seed" class="hud-seed">Semear vida</button>
-            <button id="hud-end-turn" class="hud-end-turn">Encerrar turno</button>
+            <button id="hud-end-turn" class="hud-end-turn">Encerrar turno<kbd class="action-kbd kbd-enter">↵</kbd></button>
           </div>
         </div>
 
@@ -194,6 +282,14 @@ export class TurnHUD {
     this.hintEl = this.root.querySelector('#hud-hint')!;
     this.modeEl = this.root.querySelector('#hud-mode')!;
     this.progressFillEl = this.root.querySelector('#hud-progress-fill')!;
+    this.phaseBannerEl = this.root.querySelector('#hud-phase-banner')!;
+    this.phaseBannerTitleEl = this.root.querySelector('#hud-phase-banner-title')!;
+    this.phaseBannerDetailEl = this.root.querySelector('#hud-phase-banner-detail')!;
+    this.naturalSelectionSummaryEl = this.root.querySelector('#natural-selection-summary-modal')!;
+    this.naturalSelectionSummaryBodyEl = this.root.querySelector('#natural-selection-summary-body')!;
+    this.gameOverModalEl = this.root.querySelector('#game-over-modal')!;
+    this.gameOverTitleEl = this.root.querySelector('#game-over-title')!;
+    this.gameOverDetailEl = this.root.querySelector('#game-over-detail')!;
     this.logEl = this.root.querySelector('#hud-log')!;
     this.endTurnBtn = this.root.querySelector('#hud-end-turn')!;
     this.seedBtn = this.root.querySelector('#hud-seed')!;
@@ -208,6 +304,14 @@ export class TurnHUD {
     this.floatingCancelBtn = this.root.querySelector('#floating-cancel')!;
     this.treeModalEl = this.root.querySelector('#tree-modal')!;
     this.treeModalCloseBtn = this.root.querySelector('#tree-modal-close')!;
+    this.colonyInfoModalEl = this.root.querySelector('#colony-info-modal')!;
+    this.colonyInfoBodyEl = this.root.querySelector('#colony-info-body')!;
+    const floatingInfoBtn = this.root.querySelector('#floating-info-btn')!;
+    const colonyInfoClose = this.root.querySelector('#colony-info-close')!;
+    const colonyInfoBackdrop = this.root.querySelector('#colony-info-backdrop')!;
+    const naturalSelectionSummaryClose = this.root.querySelector('#natural-selection-summary-close')!;
+    const naturalSelectionSummaryBackdrop = this.root.querySelector('#natural-selection-summary-backdrop')!;
+    const gameOverRestart = this.root.querySelector('#game-over-restart')!;
 
     this.endTurnBtn.addEventListener('click', handlers.onEndTurn);
     this.seedBtn.addEventListener('click', handlers.onSeed);
@@ -219,10 +323,28 @@ export class TurnHUD {
     this.floatingDecomposeBtn.addEventListener('click', handlers.onDecompose);
     this.treeModalCloseBtn.addEventListener('click', () => this.treeModalEl.classList.add('hidden'));
     this.root.querySelector('#tree-modal-backdrop')!.addEventListener('click', () => this.treeModalEl.classList.add('hidden'));
+    floatingInfoBtn.addEventListener('click', () => {
+      if (this.currentColonyDef) this.openColonyInfo(this.currentColonyDef);
+    });
+    colonyInfoClose.addEventListener('click', () => this.colonyInfoModalEl.classList.add('hidden'));
+    colonyInfoBackdrop.addEventListener('click', () => this.colonyInfoModalEl.classList.add('hidden'));
+    naturalSelectionSummaryClose.addEventListener('click', handlers.onCloseNaturalSelectionSummary);
+    naturalSelectionSummaryBackdrop.addEventListener('click', handlers.onCloseNaturalSelectionSummary);
+    gameOverRestart.addEventListener('click', handlers.onRestart);
   }
 
   update(state: TurnHUDState): void {
     this.turnEl.textContent = String(state.turn);
+    this.phaseBannerTitleEl.textContent = state.phaseBannerTitle;
+    this.phaseBannerDetailEl.textContent = state.phaseBannerDetail;
+    this.phaseBannerEl.classList.toggle('hidden', !state.phaseBannerTitle);
+    this.naturalSelectionSummaryEl.classList.toggle('hidden', !state.naturalSelectionSummaryVisible);
+    this.naturalSelectionSummaryBodyEl.innerHTML = state.naturalSelectionSummaryLines.length > 0
+      ? state.naturalSelectionSummaryLines.map((line) => `<div class="hud-log-line">${escapeHtml(line)}</div>`).join('')
+      : '<div class="hud-log-line">Nenhuma perda registrada.</div>';
+    this.gameOverModalEl.classList.toggle('hidden', !state.gameOverVisible);
+    this.gameOverTitleEl.textContent = state.gameOverTitle;
+    this.gameOverDetailEl.textContent = state.gameOverDetail;
     this.actionsEl.textContent = String(state.actionPoints);
     this.biomassEl.textContent = String(state.biomass);
     this.adaptationEl.textContent = String(state.adaptation);
@@ -249,6 +371,11 @@ export class TurnHUD {
     this.floatingDecomposeBtn.style.display = state.canDecompose ? 'flex' : 'none';
     this.floatingCancelBtn.disabled = !state.showCancel;
 
+    this.currentColonyDef = state.selectedColonyDef;
+    const infoBtn = this.root.querySelector('#floating-info-btn') as HTMLButtonElement;
+    if (infoBtn) infoBtn.style.display = state.selectedColonyDef?.description ? '' : 'none';
+    const titleTextEl = this.root.querySelector('#floating-menu-title-text');
+    if (titleTextEl) titleTextEl.textContent = state.selectedColonyName;
     this.floatingMenuEl.classList.toggle('hidden', !state.floatingMenuVisible);
     this.floatingMenuEl.classList.toggle('floating-left', state.floatingMenuSide === 'left');
     this.floatingMenuEl.classList.toggle('floating-right', state.floatingMenuSide === 'right');
@@ -260,5 +387,40 @@ export class TurnHUD {
     this.floatingCancelEl.classList.toggle('floating-right', state.floatingMenuSide === 'right');
     this.floatingCancelEl.style.left = `${state.floatingMenuX}px`;
     this.floatingCancelEl.style.top = `${state.floatingMenuY}px`;
+
+    this.turnEl.textContent = state.phaseLabel ? `${state.turn} · ${state.phaseLabel}` : String(state.turn);
+  }
+
+  private openColonyInfo(def: EvolutionDefinition): void {
+    const nameEl = this.root.querySelector('#colony-info-name')!;
+    const eraEl = this.root.querySelector('#colony-info-era')!;
+    nameEl.textContent = `${def.emoji} ${def.name}`;
+    eraEl.textContent = def.era ?? '';
+
+    const allowedBiomes = def.allowedBiomes.map(b =>
+      b === 'ocean' ? '🌊 Oceano' : b === 'coast' ? '🏖️ Costa' : '🌳 Terra'
+    ).join(' · ');
+
+    const nextForms = def.next.length > 0
+      ? def.next.map(n => {
+          const node = EVOLUTION_BY_ID.get(n.to);
+          return node ? `${node.emoji} ${node.name}` : n.to;
+        }).join(', ')
+      : 'Nenhuma (forma terminal)';
+
+    this.colonyInfoBodyEl.innerHTML = `
+      ${def.description ? `<p class="colony-info-description">${escapeHtml(def.description)}</p>` : ''}
+      <div class="colony-info-facts">
+        <div class="colony-info-fact">
+          <span class="colony-info-fact-label">Biomas</span>
+          <span class="colony-info-fact-value">${allowedBiomes}</span>
+        </div>
+        <div class="colony-info-fact">
+          <span class="colony-info-fact-label">Evolui para</span>
+          <span class="colony-info-fact-value">${nextForms}</span>
+        </div>
+      </div>
+    `;
+    this.colonyInfoModalEl.classList.remove('hidden');
   }
 }

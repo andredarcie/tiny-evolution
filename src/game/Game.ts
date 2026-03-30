@@ -26,6 +26,8 @@ export class Game {
       onSeed: () => this.scene.startSeedMode(),
       onEndTurn: () => this.scene.endTurn(),
       onCancel: () => this.scene.cancelCurrentMode(),
+      onCloseNaturalSelectionSummary: () => this.scene.dismissNaturalSelectionSummary(),
+      onRestart: () => this.scene.restart(),
     });
     this.scene = new TurnGameScene(hud);
 
@@ -36,6 +38,19 @@ export class Game {
     window.addEventListener('resize', this.onWindowResize);
     window.visualViewport?.addEventListener('resize', this.onWindowResize);
     this.canvas.addEventListener('pointerdown', this.onPointerDown);
+    (window as typeof window & {
+      render_game_to_text?: () => string;
+      advanceTime?: (ms: number) => void;
+    }).render_game_to_text = () => JSON.stringify(this.scene.getDebugState());
+    (window as typeof window & {
+      render_game_to_text?: () => string;
+      advanceTime?: (ms: number) => void;
+    }).advanceTime = (ms: number) => {
+      const steps = Math.max(1, Math.round(ms / (1000 / 60)));
+      for (let index = 0; index < steps; index += 1) {
+        this.scene.update();
+      }
+    };
     this.animId = requestAnimationFrame(this.loop);
   }
 
@@ -83,5 +98,13 @@ export class Game {
     window.removeEventListener('resize', this.onWindowResize);
     window.visualViewport?.removeEventListener('resize', this.onWindowResize);
     this.canvas.removeEventListener('pointerdown', this.onPointerDown);
+    delete (window as typeof window & {
+      render_game_to_text?: () => string;
+      advanceTime?: (ms: number) => void;
+    }).render_game_to_text;
+    delete (window as typeof window & {
+      render_game_to_text?: () => string;
+      advanceTime?: (ms: number) => void;
+    }).advanceTime;
   }
 }

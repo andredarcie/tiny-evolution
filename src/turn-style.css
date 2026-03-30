@@ -86,6 +86,36 @@
   transition: width 0.25s ease;
 }
 
+.hud-phase-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 8px 12px 0;
+  padding: 10px 12px;
+  background: rgba(70, 89, 54, 0.92);
+  color: #f8f2e8;
+  border-radius: 14px;
+  box-shadow: 0 8px 18px rgba(21, 25, 14, 0.16);
+  pointer-events: none;
+}
+
+.hud-phase-banner.hidden {
+  display: none;
+}
+
+.hud-phase-banner-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hud-phase-banner-detail {
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(248, 242, 232, 0.92);
+}
+
 /* ── Floating action menu (colony context menu) ────────────────────────── */
 
 .floating-action-menu {
@@ -127,6 +157,17 @@
 
 .floating-cancel-menu.floating-right {
   transform: translate(0, calc(-50% + 140px));
+}
+
+.floating-menu-title {
+  padding: 4px 4px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #86694b;
+  border-bottom: 1px solid rgba(104, 76, 46, 0.12);
+  margin-bottom: 2px;
 }
 
 .floating-action-menu button {
@@ -733,6 +774,11 @@
    ══════════════════════════════════════════════════════════════════════════ */
 
 @media (min-width: 640px) {
+  .hud-phase-banner {
+    margin: 10px 16px 0;
+    padding: 12px 14px;
+  }
+
   .hud-topbar {
     padding: 12px 16px;
     gap: 12px;
@@ -797,6 +843,11 @@
   #hud-overlay {
     padding: 18px;
     gap: 12px;
+  }
+
+  .hud-phase-banner {
+    margin: 0;
+    width: min(100%, 520px);
   }
 
   .hud-topbar {
@@ -951,5 +1002,255 @@
   .evo-node {
     font-size: 13px;
     padding: 5px 12px;
+  }
+}
+
+/* ── Desktop: larger floating menu (via class and media query) ─────────── */
+
+@media (min-width: 980px) {
+  .floating-action-menu {
+    min-width: 210px !important;
+    padding: 14px !important;
+    gap: 8px !important;
+    border-radius: 18px !important;
+  }
+
+  .floating-action-menu button {
+    padding: 13px 16px !important;
+    min-height: 52px !important;
+    font-size: 15px !important;
+    border-radius: 12px !important;
+  }
+
+  .floating-menu-title {
+    font-size: 12px !important;
+    padding: 2px 4px 8px !important;
+  }
+}
+
+#hud-overlay.layout-side .floating-action-menu {
+  min-width: 210px;
+  padding: 14px;
+  gap: 8px;
+  border-radius: 18px;
+}
+
+#hud-overlay.layout-side .floating-action-menu button {
+  padding: 13px 16px;
+  min-height: 52px;
+  font-size: 15px;
+  border-radius: 12px;
+}
+
+#hud-overlay.layout-side .floating-menu-title {
+  font-size: 12px;
+  padding: 2px 4px 8px;
+}
+
+/* ── Keyboard shortcut badges ──────────────────────────────────────────── */
+.action-kbd {
+  display: none; /* hidden on mobile */
+  margin-left: auto;
+  padding: 1px 5px;
+  font: 600 10px/16px 'Inter', system-ui, monospace;
+  letter-spacing: 0.04em;
+  color: #86694b;
+  background: rgba(104, 76, 46, 0.09);
+  border: 1px solid rgba(104, 76, 46, 0.20);
+  border-radius: 5px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.kbd-enter {
+  font-size: 12px;
+  padding: 1px 6px;
+}
+
+#hud-overlay.layout-side .action-kbd {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ── Floating info button ───────────────────────────────────────────────── */
+.floating-menu-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.floating-info-btn {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(104, 76, 46, 0.10);
+  color: #86694b;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.12s ease, color 0.12s ease;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.floating-info-btn:hover {
+  background: rgba(104, 76, 46, 0.20);
+  color: #5a3e20;
+}
+
+.floating-info-btn:active {
+  background: rgba(104, 76, 46, 0.30);
+  transform: scale(0.94);
+}
+
+/* ── Colony info modal ──────────────────────────────────────────────────── */
+.colony-info-modal {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  z-index: 70;
+}
+
+.colony-info-modal.hidden {
+  display: none;
+}
+
+.colony-info-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(30, 20, 10, 0.52);
+}
+
+.colony-info-card {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  max-height: 80dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 250, 242, 0.99);
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -8px 40px rgba(27, 16, 8, 0.18);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.colony-info-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 16px 14px;
+  border-bottom: 1px solid rgba(104, 76, 46, 0.12);
+  flex-shrink: 0;
+}
+
+.colony-info-kicker {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #86694b;
+  margin-bottom: 4px;
+}
+
+.colony-info-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #2b1e12;
+}
+
+.colony-info-close {
+  border: none;
+  border-radius: 10px;
+  padding: 8px 12px;
+  min-height: 40px;
+  background: rgba(96, 65, 42, 0.08);
+  color: #2b1e12;
+  font: inherit;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
+}
+
+.colony-info-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 18px 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.colony-info-description {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.6;
+  color: #2b1e12;
+}
+
+.colony-info-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.colony-info-fact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  background: rgba(169, 137, 92, 0.08);
+  border-radius: 10px;
+}
+
+.colony-info-fact-label {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #86694b;
+}
+
+.colony-info-fact-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2b1e12;
+}
+
+.game-over-restart {
+  align-self: stretch;
+  border: none;
+  border-radius: 12px;
+  padding: 12px 14px;
+  min-height: 46px;
+  background: #8a3a2d;
+  color: #fffaf2;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+@media (min-width: 980px) {
+  .colony-info-card {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    bottom: auto;
+    right: auto;
+    width: min(520px, calc(100vw - 32px));
+    max-height: min(75vh, 680px);
+    border-radius: 20px;
+    transform: translate(-50%, -50%);
+    padding-bottom: 0;
   }
 }

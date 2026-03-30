@@ -34,9 +34,11 @@ function getColonyAt(scene: TurnGameScene, x: number, y: number) {
   return (scene as any).getColonyAt(x, y);
 }
 
-function advanceTurns(scene: TurnGameScene, count: number) {
-  for (let i = 0; i < count; i += 1) {
-    scene.endTurn();
+function flushNaturalSelection(scene: TurnGameScene) {
+  let safety = 0;
+  while ((scene as any).phase === 'natural-selection' && safety < 500) {
+    scene.update();
+    safety += 1;
   }
 }
 
@@ -272,83 +274,149 @@ describe('TurnGameScene evolution priority', () => {
     expect(colony.lifeFormId).toBe('homo_sapiens');
   });
 
-  it('keeps a full playable route to Homo sapiens across expansion and end-turn cycles', () => {
+  it('applies natural selection to isolated colonies in harsh biomes', () => {
     const scene = createScene();
-    const oceanColony = getSelectedColony(scene);
+    const colony = getSelectedColony(scene);
 
-    oceanColony.population = 3;
+    colony.lifeFormId = 'mamifero';
+    colony.x = 5;
+    colony.y = 2;
+    colony.population = 2;
+    colony.adaptationPoints = 1;
+    syncColonyTraversal(scene, colony);
 
-    const oceanPath = [
-      'cianobacteria',
-      'protozoario',
-      'esponja',
-      'verme_plano',
-      'cordado_ancestral',
-      'vertebrado_basal',
-      'peixe',
-    ];
+    const queue = (scene as any).buildNaturalSelectionQueue();
+    const event = queue.find((item: any) => item.colonyId === colony.id && item.kind === 'exposure');
 
-    for (const expected of oceanPath) {
-      setSelectedColony(scene, oceanColony);
-      scene.performAdapt();
-      expect(oceanColony.lifeFormId).toBe(expected);
-      if (expected !== 'peixe') {
-        scene.endTurn();
-      }
-    }
+    expect(event).toBeTruthy();
+
+    (scene as any).applyNaturalSelectionEvent(event);
+
+    expect(colony.population).toBe(1);
+    expect((scene as any).logLines.some((line: string) => line.includes('Selecao Natural'))).toBe(true);
+  });
+
+  it('applies natural selection to colonies parked in the wrong biome', () => {
+    const scene = createScene();
+    const colony = getSelectedColony(scene);
+
+    colony.lifeFormId = 'vertebrado_basal';
+    colony.x = 3;
+    colony.y = 2;
+    colony.population = 2;
+    colony.adaptationPoints = 2;
+    syncColonyTraversal(scene, colony);
+
+    addColony(scene, 4, 2, {
+      lifeFormId: 'fungo',
+      population: 2,
+      adaptationPoints: 1,
+    });
+
+    const queue = (scene as any).buildNaturalSelectionQueue();
+    const event = queue.find((item: any) => item.colonyId === colony.id && item.kind === 'stagnation');
+
+    expect(event).toBeTruthy();
+
+    (scene as any).applyNaturalSelectionEvent(event);
+
+    expect(colony.adaptationPoints).toBe(1);
+    const neighbor = getColonyAt(scene, 4, 2);
+    expect(neighbor.adaptationPoints).toBe(1);
+    expect(event.detail.includes('bioma errado')).toBe(true);
+  });
+
+  it('only increases local biomass when consolidation completes', () => {
+    const scene = createScene();
+    const colony = getSelectedColony(scene);
+
+    colony.biomass = 3;
+    setSelectedColony(scene, colony);
+    scene.performConsolidate();
 
     scene.endTurn();
-    setSelectedColony(scene, oceanColony);
+    flushNaturalSelection(scene);
+    scene.endTurn();
+    flushNaturalSelection(scene);
+
+    expect(colony.biomass).toBe(2);
+  });
+
+  it('spends parent biomass and gives the new colony 1 local biomass on expansion', () => {
+    const scene = createScene();
+    const colony = getSelectedColony(scene);
+
+    colony.biomass = 3;
+    setSelectedColony(scene, colony);
     scene.startExpandMode();
-    (scene as any).tryExpandTo(3, 2);
-    advanceTurns(scene, 3);
+    (scene as any).tryExpandTo(2, 1);
 
-    const coastBridge = getColonyAt(scene, 3, 2);
-    expect(coastBridge).toBeTruthy();
-    expect(coastBridge.lifeFormId).toBe('peixe');
+    const expanded = getColonyAt(scene, 2, 1);
+    expect(colony.biomass).toBe(2);
+    expect(expanded).toBeTruthy();
+    expect(expanded.biomass).toBe(1);
+  });
 
-    setSelectedColony(scene, coastBridge);
+  it('natural selection removes 1 local biomass from older colonies but skips colonies created this turn', () => {
+    const scene = createScene();
+    const colony = getSelectedColony(scene);
+
+    colony.biomass = 4;
+    setSelectedColony(scene, colony);
     scene.startExpandMode();
-    (scene as any).tryExpandTo(4, 2);
-    advanceTurns(scene, 3);
+    (scene as any).tryExpandTo(2, 1);
 
-    const coastFrontier = getColonyAt(scene, 4, 2);
-    expect(coastFrontier).toBeTruthy();
-    expect(coastFrontier.lifeFormId).toBe('peixe');
-
-    setSelectedColony(scene, coastFrontier);
-    scene.performAdapt();
-    expect(coastFrontier.lifeFormId).toBe('anfibio');
+    const expanded = getColonyAt(scene, 2, 1);
+    expect(expanded.biomass).toBe(1);
 
     scene.endTurn();
-    setSelectedColony(scene, coastFrontier);
-    scene.startExpandMode();
-    (scene as any).tryExpandTo(5, 2);
-    advanceTurns(scene, 3);
+    flushNaturalSelection(scene);
 
-    const landLineage = getColonyAt(scene, 5, 2);
-    expect(landLineage).toBeTruthy();
-    expect(landLineage.lifeFormId).toBe('anfibio');
+    expect(colony.biomass).toBe(2);
+    expect(expanded.biomass).toBe(1);
+    expect((scene as any).naturalSelectionSummaryLines.some((line: string) => line.includes('-1 biomassa local'))).toBe(true);
+    expect((scene as any).naturalSelectionSummaryVisible).toBe(true);
+  });
 
-    const landPath = [
-      'reptil',
-      'sinapsideo',
-      'mamifero',
-      'primata_ancestral',
-      'simio_ancestral',
-      'hominino',
-      'homo_sapiens',
-    ];
+  it('extinguishes a colony when local biomass reaches zero and reports it in the summary', () => {
+    const scene = createScene();
+    const colony = getSelectedColony(scene);
+    const startX = colony.x;
+    const startY = colony.y;
 
-    for (const expected of landPath) {
-      setSelectedColony(scene, landLineage);
-      scene.performAdapt();
-      expect(landLineage.lifeFormId).toBe(expected);
-      if (expected !== 'homo_sapiens') {
-        scene.endTurn();
-      }
-    }
+    colony.biomass = 1;
+    const event = (scene as any).buildNaturalSelectionQueue().find((item: any) => item.colonyId === colony.id && item.kind === 'attrition');
+    (scene as any).applyNaturalSelectionEvent(event);
 
-    expect(landLineage.lifeFormId).toBe('homo_sapiens');
+    expect(getColonyAt(scene, startX, startY)).toBeNull();
+    expect((scene as any).naturalSelectionSummaryLines.some((line: string) => line.includes('extinta'))).toBe(true);
+    expect((scene as any).extinctionBursts.length).toBeGreaterThan(0);
+  });
+
+  it('extinguishes a gestating expansion with its parent and triggers game over when nothing survives', () => {
+    const scene = createScene();
+    (scene as any).colonies.clear();
+
+    const parent = addColony(scene, 0, 0, {
+      biomass: 1,
+      createdTurn: 0,
+    });
+    const child = addColony(scene, 1, 0, {
+      biomass: 1,
+      createdTurn: 1,
+      parentColonyId: parent.id,
+      gestatingUntilTurn: 99,
+      busyUntilTurn: 99,
+    });
+
+    const event = (scene as any).buildNaturalSelectionQueue().find((item: any) => item.colonyId === parent.id && item.kind === 'attrition');
+    (scene as any).applyNaturalSelectionEvent(event);
+    (scene as any).finishNaturalSelection();
+
+    expect(getColonyAt(scene, parent.x, parent.y)).toBeNull();
+    expect(getColonyAt(scene, child.x, child.y)).toBeNull();
+    expect((scene as any).gameOver).toBe(true);
+    expect((scene as any).gameOverTitle).toContain('Fim da vida');
+    expect((scene as any).naturalSelectionSummaryLines.some((line: string) => line.includes('expansao abortada'))).toBe(true);
   });
 });
