@@ -24,6 +24,7 @@ export interface TurnHUDState {
   progress: number;
   logLines: string[];
   canConsolidate: boolean;
+  consolidateActive: boolean;
   canAdapt: boolean;
   adaptBlockedReason: string;
   canExpand: boolean;
@@ -41,8 +42,11 @@ export interface TurnHUDState {
   selectedColonyDef: EvolutionDefinition | null;
   phaseBannerTitle: string;
   phaseBannerDetail: string;
-  naturalSelectionSummaryVisible: boolean;
-  naturalSelectionSummaryLines: string[];
+  terminalInfoVisible: boolean;
+  terminalInfoTitle: string;
+  terminalInfoLead: string;
+  terminalInfoBenefits: string[];
+  terminalInfoBiology: string;
   gameOverVisible: boolean;
   gameOverTitle: string;
   gameOverQuote: string;
@@ -58,7 +62,7 @@ export type HUDActionHandlers = {
   onSeed: () => void;
   onEndTurn: () => void;
   onCancel: () => void;
-  onCloseNaturalSelectionSummary: () => void;
+  onCloseTerminalInfo: () => void;
   onRestart: () => void;
 };
 
@@ -91,11 +95,14 @@ export class TurnHUD {
   private treeModalCloseBtn: HTMLButtonElement;
   private colonyInfoModalEl: HTMLElement;
   private colonyInfoBodyEl: HTMLElement;
+  private terminalInfoModalEl: HTMLElement;
+  private terminalInfoTitleEl: HTMLElement;
+  private terminalInfoLeadEl: HTMLElement;
+  private terminalInfoBenefitsEl: HTMLElement;
+  private terminalInfoBiologyEl: HTMLElement;
   private phaseBannerEl: HTMLElement;
   private phaseBannerTitleEl: HTMLElement;
   private phaseBannerDetailEl: HTMLElement;
-  private naturalSelectionSummaryEl: HTMLElement;
-  private naturalSelectionSummaryBodyEl: HTMLElement;
   private gameOverModalEl: HTMLElement;
   private gameOverTitleEl: HTMLElement;
   private gameOverQuoteEl: HTMLElement;
@@ -190,17 +197,31 @@ export class TurnHUD {
         </div>
       </div>
 
-      <div class="colony-info-modal hidden" id="natural-selection-summary-modal">
-        <div class="colony-info-backdrop" id="natural-selection-summary-backdrop"></div>
-        <div class="colony-info-card" role="dialog" aria-modal="true">
-          <div class="colony-info-header">
+      <div class="colony-info-modal hidden" id="terminal-info-modal">
+        <div class="colony-info-backdrop" id="terminal-info-backdrop"></div>
+        <div class="colony-info-card terminal-info-card" role="dialog" aria-modal="true">
+          <div class="colony-info-header terminal-info-header">
             <div>
-              <div class="colony-info-kicker">selecao natural</div>
-              <h2 class="colony-info-title">Resumo das perdas</h2>
+              <div class="colony-info-kicker">ramo terminal</div>
+              <h2 class="colony-info-title" id="terminal-info-title"></h2>
             </div>
-            <button class="colony-info-close" id="natural-selection-summary-close" aria-label="Fechar">Fechar</button>
+            <button class="colony-info-close" id="terminal-info-close" aria-label="Fechar">✕</button>
           </div>
-          <div class="colony-info-body" id="natural-selection-summary-body"></div>
+          <div class="colony-info-body terminal-info-body">
+            <div class="terminal-info-hero">
+              <p class="colony-info-description terminal-info-lead" id="terminal-info-lead"></p>
+            </div>
+            <div class="colony-info-facts terminal-info-grid">
+              <div class="colony-info-fact terminal-info-fact terminal-info-fact-benefits">
+                <span class="colony-info-fact-label">O que muda agora</span>
+                <div class="colony-info-fact-value" id="terminal-info-benefits"></div>
+              </div>
+              <div class="colony-info-fact terminal-info-fact terminal-info-fact-biology">
+                <span class="colony-info-fact-label">Por que isso existe na biologia</span>
+                <div class="colony-info-fact-value" id="terminal-info-biology"></div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -289,8 +310,6 @@ export class TurnHUD {
     this.phaseBannerEl = this.root.querySelector('#hud-phase-banner')!;
     this.phaseBannerTitleEl = this.root.querySelector('#hud-phase-banner-title')!;
     this.phaseBannerDetailEl = this.root.querySelector('#hud-phase-banner-detail')!;
-    this.naturalSelectionSummaryEl = this.root.querySelector('#natural-selection-summary-modal')!;
-    this.naturalSelectionSummaryBodyEl = this.root.querySelector('#natural-selection-summary-body')!;
     this.gameOverModalEl = this.root.querySelector('#game-over-modal')!;
     this.gameOverTitleEl = this.root.querySelector('#game-over-title')!;
     this.gameOverQuoteEl = this.root.querySelector('#game-over-quote')!;
@@ -311,11 +330,16 @@ export class TurnHUD {
     this.treeModalCloseBtn = this.root.querySelector('#tree-modal-close')!;
     this.colonyInfoModalEl = this.root.querySelector('#colony-info-modal')!;
     this.colonyInfoBodyEl = this.root.querySelector('#colony-info-body')!;
+    this.terminalInfoModalEl = this.root.querySelector('#terminal-info-modal')!;
+    this.terminalInfoTitleEl = this.root.querySelector('#terminal-info-title')!;
+    this.terminalInfoLeadEl = this.root.querySelector('#terminal-info-lead')!;
+    this.terminalInfoBenefitsEl = this.root.querySelector('#terminal-info-benefits')!;
+    this.terminalInfoBiologyEl = this.root.querySelector('#terminal-info-biology')!;
     const floatingInfoBtn = this.root.querySelector('#floating-info-btn')!;
     const colonyInfoClose = this.root.querySelector('#colony-info-close')!;
     const colonyInfoBackdrop = this.root.querySelector('#colony-info-backdrop')!;
-    const naturalSelectionSummaryClose = this.root.querySelector('#natural-selection-summary-close')!;
-    const naturalSelectionSummaryBackdrop = this.root.querySelector('#natural-selection-summary-backdrop')!;
+    const terminalInfoClose = this.root.querySelector('#terminal-info-close')!;
+    const terminalInfoBackdrop = this.root.querySelector('#terminal-info-backdrop')!;
     const gameOverRestart = this.root.querySelector('#game-over-restart')!;
 
     this.endTurnBtn.addEventListener('click', handlers.onEndTurn);
@@ -333,8 +357,8 @@ export class TurnHUD {
     });
     colonyInfoClose.addEventListener('click', () => this.colonyInfoModalEl.classList.add('hidden'));
     colonyInfoBackdrop.addEventListener('click', () => this.colonyInfoModalEl.classList.add('hidden'));
-    naturalSelectionSummaryClose.addEventListener('click', handlers.onCloseNaturalSelectionSummary);
-    naturalSelectionSummaryBackdrop.addEventListener('click', handlers.onCloseNaturalSelectionSummary);
+    terminalInfoClose.addEventListener('click', handlers.onCloseTerminalInfo);
+    terminalInfoBackdrop.addEventListener('click', handlers.onCloseTerminalInfo);
     gameOverRestart.addEventListener('click', handlers.onRestart);
   }
 
@@ -343,10 +367,13 @@ export class TurnHUD {
     this.phaseBannerTitleEl.textContent = state.phaseBannerTitle;
     this.phaseBannerDetailEl.textContent = state.phaseBannerDetail;
     this.phaseBannerEl.classList.toggle('hidden', !state.phaseBannerTitle);
-    this.naturalSelectionSummaryEl.classList.toggle('hidden', !state.naturalSelectionSummaryVisible);
-    this.naturalSelectionSummaryBodyEl.innerHTML = state.naturalSelectionSummaryLines.length > 0
-      ? state.naturalSelectionSummaryLines.map((line) => `<div class="hud-log-line">${escapeHtml(line)}</div>`).join('')
-      : '<div class="hud-log-line">Nenhuma perda registrada.</div>';
+    this.terminalInfoModalEl.classList.toggle('hidden', !state.terminalInfoVisible);
+    this.terminalInfoTitleEl.textContent = state.terminalInfoTitle;
+    this.terminalInfoLeadEl.textContent = state.terminalInfoLead;
+    this.terminalInfoBenefitsEl.innerHTML = state.terminalInfoBenefits.length > 0
+      ? `<ul class="terminal-info-list">${state.terminalInfoBenefits.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
+      : '';
+    this.terminalInfoBiologyEl.textContent = state.terminalInfoBiology;
     this.gameOverModalEl.classList.toggle('hidden', !state.gameOverVisible);
     this.gameOverTitleEl.textContent = state.gameOverTitle;
     this.gameOverQuoteEl.innerHTML = state.gameOverQuote
@@ -370,6 +397,8 @@ export class TurnHUD {
     this.seedBtn.disabled = !state.canSeed;
     this.seedBtn.style.display = state.canSeed ? '' : 'none';
     this.floatingConsolidateBtn.disabled = !state.canConsolidate;
+    this.floatingConsolidateBtn.classList.toggle('is-active', state.consolidateActive);
+    this.floatingConsolidateBtn.setAttribute('aria-pressed', state.consolidateActive ? 'true' : 'false');
     this.floatingAdaptBtn.disabled = !state.canAdapt;
     this.floatingAdaptReasonEl.textContent = state.adaptBlockedReason;
     this.floatingAdaptReasonEl.classList.toggle('hidden', state.canAdapt || !state.adaptBlockedReason);

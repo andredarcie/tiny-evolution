@@ -26,7 +26,7 @@ export class Game {
       onSeed: () => this.scene.startSeedMode(),
       onEndTurn: () => this.scene.endTurn(),
       onCancel: () => this.scene.cancelCurrentMode(),
-      onCloseNaturalSelectionSummary: () => this.scene.dismissNaturalSelectionSummary(),
+      onCloseTerminalInfo: () => this.scene.dismissTerminalInfo(),
       onRestart: () => this.scene.restart(),
     });
     this.scene = new TurnGameScene(hud);
