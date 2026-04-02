@@ -4,9 +4,12 @@ import {
   EVOLUTION_BY_ID,
   HUMAN_EVOLUTION_ID,
   STAGES,
+  GROUP_ENERGY_MULTIPLIER,
+  formatBiomass,
   type Biome,
   type EvolutionDefinition,
 } from './evolutionData';
+import { rollTurnEvent, type TurnEvent } from './TurnEventSystem';
 
 type ActionMode = 'idle' | 'expand' | 'seed';
 type TurnPhase = 'player' | 'natural-selection';
@@ -15,6 +18,15 @@ interface NaturalSelectionEvent {
   colonyId: number;
   kind: 'support' | 'exposure' | 'stagnation' | 'attrition';
   detail: string;
+}
+
+interface LifeMilestone {
+  id: string;
+  triggerLifeFormId: string;
+  title: string;
+  when: string;
+  lead: string;
+  body: string;
 }
 
 interface Colony {
@@ -28,10 +40,11 @@ interface Colony {
   coastAdapted: boolean;
   landAdapted: boolean;
   fortified: boolean;
+  autoExplore: boolean;
   autoConsolidate: boolean;
   busyUntilTurn: number;
-  consolidatingUntilTurn: number | null;
-  consolidationBiomassPending: boolean;
+  exploringUntilTurn: number | null;
+  explorationBiomassPending: boolean;
   gestatingUntilTurn: number | null;
   createdTurn: number;
   parentColonyId: number | null;
@@ -42,6 +55,30 @@ const SEED_COST = 4;
 const HUMAN_PATH_PRIORITY_CHANCE = 0.8;
 const MIN_PARALLEL_HUMAN_PATHS_FOR_BRANCHING = 2;
 const NATURAL_SELECTION_EVENT_DELAY_FRAMES = 60;
+const HEX_SQRT3 = Math.sqrt(3);
+const WORLD_COLORS = {
+  background: '#e9e1d2',
+  ocean: '#3a6f96',
+  coast: '#8fbfad',
+  land: '#8eaa63',
+  expandHighlight: 'rgba(243, 211, 107, 0.34)',
+  seedHighlight: 'rgba(111, 170, 201, 0.34)',
+  hoverStroke: '#f7f1e8',
+  selectedStroke: '#6e4c2d',
+  gridStroke: 'rgba(107, 90, 70, 0.18)',
+  badgeFill: 'rgba(251, 246, 238, 0.94)',
+  badgeStroke: 'rgba(110, 76, 45, 0.24)',
+  badgeText: '#4d3b2b',
+  adaptationReady: '#72b36a',
+  adaptationSpent: '#c98b2e',
+  fortifyStroke: '#f7f1e8',
+  consolidateStroke: '#f3d36b',
+  text: '#2e241b',
+  extinctionStroke: 'rgba(184, 90, 70, 0.95)',
+  biomassGain: '#72b36a',
+  biomassLoss: '#f3d36b',
+  energyPip: 'rgba(255, 255, 255, 0.45)',
+} as const;
 
 interface FloatingDelta {
   colonyId: number;
@@ -60,6 +97,137 @@ interface GameOverQuote {
   text: string;
   author: string;
 }
+
+const LIFE_MILESTONES: LifeMilestone[] = [
+  {
+    id: 'origin-of-life',
+    triggerLifeFormId: 'bacteria_primitiva',
+    when: 'há cerca de 3,5 a 3,8 bilhões de anos',
+    title: 'Você chegou em: Surgimento da Vida',
+    lead: 'As primeiras células vivas surgem nos oceanos primitivos da Terra.',
+    body: 'Esse é o começo de toda a história biológica do planeta. Organismos simples, sem núcleo, passam a se replicar e a explorar energia química em um mundo ainda sem oxigênio livre.',
+  },
+  {
+    id: 'great-oxidation',
+    triggerLifeFormId: 'cianobacteria',
+    when: 'há cerca de 2,4 bilhões de anos',
+    title: 'Você chegou em: Grande Oxidação',
+    lead: 'A fotossíntese começa a transformar a atmosfera do planeta.',
+    body: 'Linhagens fotossintetizantes oxigênicas passam a liberar oxigênio em escala suficiente para alterar a química dos oceanos e da atmosfera. Isso desestabiliza muitos ecossistemas anaeróbios e prepara o planeta para formas de vida mais complexas.',
+  },
+  {
+    id: 'eukaryotes',
+    triggerLifeFormId: 'protozoario',
+    when: 'há cerca de 2,0 bilhões de anos',
+    title: 'Você chegou em: Surgimento das Células Eucarióticas',
+    lead: 'A vida dá um salto estrutural com células maiores e mais complexas.',
+    body: 'Células com núcleo e organelas surgem provavelmente por endossimbiose. Essa inovação abre caminho para especialização interna, maior eficiência energética e, mais tarde, para a multicelularidade.',
+  },
+  {
+    id: 'multicellularity',
+    triggerLifeFormId: 'esponja',
+    when: 'há cerca de 650 milhões de anos',
+    title: 'Você chegou em: Multicelularidade e Primeiros Animais',
+    lead: 'A vida passa a organizar corpos com muitas células cooperando entre si.',
+    body: 'Com organismos multicelulares, surgem tecidos simples, divisão de funções e novas possibilidades ecológicas. Os primeiros animais aparecem nos mares e inauguram uma nova etapa da evolução.',
+  },
+  {
+    id: 'cambrian-explosion',
+    triggerLifeFormId: 'verme_plano',
+    when: 'há cerca de 540 milhões de anos',
+    title: 'Você chegou em: Explosão Cambriana',
+    lead: 'Os grandes planos corporais animais se diversificam rapidamente.',
+    body: 'Nesse período, a vida animal ganha enorme variedade anatômica. Surgem linhagens com simetria bilateral, cabeças, direção corporal definida e maior mobilidade, bases da fauna moderna.',
+  },
+  {
+    id: 'vertebrates',
+    triggerLifeFormId: 'vertebrado_basal',
+    when: 'há cerca de 480 milhões de anos',
+    title: 'Você chegou em: Surgimento dos Vertebrados',
+    lead: 'A linhagem com crânio e eixo corporal reforçado começa a tomar forma.',
+    body: 'Os primeiros vertebrados estabelecem a base anatômica que, muito mais tarde, levará a peixes, anfíbios, répteis, aves, mamíferos e seres humanos.',
+  },
+  {
+    id: 'land-plants',
+    triggerLifeFormId: 'embriofita',
+    when: 'há cerca de 470 milhões de anos',
+    title: 'Você chegou em: Plantas Terrestres Iniciais',
+    lead: 'A cobertura viva dos continentes começa a se estabelecer.',
+    body: 'As primeiras plantas terrestres ajudam a reter solo, alterar ciclos químicos e criar novos microambientes em terra firme. Antes mesmo dos vertebrados terrestres, elas já estavam transformando os continentes.',
+  },
+  {
+    id: 'jawed-vertebrates',
+    triggerLifeFormId: 'gnatostomado',
+    when: 'há cerca de 430 milhões de anos',
+    title: 'Você chegou em: Vertebrados com Mandíbula',
+    lead: 'Uma inovação anatômica muda profundamente a história dos vertebrados.',
+    body: 'Mandíbulas ampliam estratégias de alimentação, defesa e predação. A partir desse ponto, a diversificação vertebrada acelera e prepara o terreno para peixes ósseos, tubarões e muitos outros ramos.',
+  },
+  {
+    id: 'lobe-finned-fish',
+    triggerLifeFormId: 'sarcopterigio',
+    when: 'há cerca de 390 milhões de anos',
+    title: 'Você chegou em: Peixes de Nadadeiras Lobadas',
+    lead: 'As estruturas dos futuros membros dos tetrápodes começam a aparecer.',
+    body: 'Dentro dos sarcopterígios, nadadeiras com ossos internos robustos abrem caminho para a transição à terra. Esse ramo é central para entender a origem anatômica dos vertebrados terrestres.',
+  },
+  {
+    id: 'land-conquest',
+    triggerLifeFormId: 'anfibio',
+    when: 'há cerca de 375 milhões de anos',
+    title: 'Você chegou em: Vertebrados em Terra Firme',
+    lead: 'Vertebrados passam a explorar o ambiente fora da água de forma mais estável.',
+    body: 'Plantas e artrópodes já ocupavam ambientes terrestres antes desse passo. O que este marco representa é a entrada dos vertebrados em terra firme, alterando locomoção, respiração, alimentação e a estrutura ecológica dos continentes.',
+  },
+  {
+    id: 'amniotic-egg',
+    triggerLifeFormId: 'reptil',
+    when: 'há cerca de 320 milhões de anos',
+    title: 'Você chegou em: Ovo Amniótico',
+    lead: 'A reprodução deixa de depender diretamente da água livre.',
+    body: 'O ovo amniótico permite uma reprodução muito mais independente da água livre e ajuda a consolidar a expansão dos vertebrados em terra. Evidências recentes sugerem que amniotas podem ser mais antigos do que as estimativas clássicas, mas esse marco continua representando essa transição reprodutiva decisiva.',
+  },
+  {
+    id: 'mammals',
+    triggerLifeFormId: 'mamifero',
+    when: 'há cerca de 200 milhões de anos',
+    title: 'Você chegou em: Surgimento dos Mamíferos',
+    lead: 'Uma nova linhagem terrestre ganha sofisticação fisiológica e comportamental.',
+    body: 'Os primeiros mamíferos reúnem características como endotermia, lactação e cuidado parental intenso, embora ainda ocupem nichos discretos por muito tempo. Sua grande radiação ecológica virá bem mais tarde, após a extinção dos dinossauros não aviários.',
+  },
+  {
+    id: 'mammalian-radiation',
+    triggerLifeFormId: 'placentario_basal',
+    when: 'hÃ¡ cerca de 66 milhÃµes de anos',
+    title: 'VocÃª chegou em: RadiaÃ§Ã£o dos MamÃ­feros',
+    lead: 'Os mamÃ­feros passam a ocupar em massa os nichos liberados no inÃ­cio do Cenozoico.',
+    body: 'ApÃ³s a extinÃ§Ã£o do fim do CretÃ¡ceo, os mamÃ­feros placentÃ¡rios se diversificam rapidamente. Desse contexto emergem muitos ramos modernos, como primatas, carnÃ­voros, cetÃ¡ceos, roedores, morcegos e proboscÃ­deos.',
+  },
+  {
+    id: 'primates',
+    triggerLifeFormId: 'primata_ancestral',
+    when: 'há cerca de 55 a 65 milhões de anos',
+    title: 'Você chegou em: Evolução dos Primatas',
+    lead: 'Visão, mãos e cognição passam a ganhar novo peso evolutivo.',
+    body: 'Primatas desenvolvem visão frontal, maior coordenação manual e cérebros mais flexíveis. Essa combinação prepara o terreno para linhagens com comportamento social e aprendizado sofisticados.',
+  },
+  {
+    id: 'hominins',
+    triggerLifeFormId: 'hominino',
+    when: 'há cerca de 6 a 7 milhões de anos',
+    title: 'Você chegou em: Surgimento dos Hominínios',
+    lead: 'Bipedalismo e expansão cerebral passam a se combinar na mesma linhagem.',
+    body: 'Os primeiros hominínios representam a separação entre a linhagem humana e a dos chimpanzés. Ao longo desse ramo, bipedalismo, mãos livres e mudanças cognitivas passam a se reforçar até formas mais claramente humanas aparecerem milhões de anos depois.',
+  },
+  {
+    id: 'homo-sapiens',
+    triggerLifeFormId: 'homo_sapiens',
+    when: 'há cerca de 300 mil anos',
+    title: 'Você chegou em: Homo sapiens',
+    lead: 'A linhagem humana surge como parte recente de uma história muito mais antiga.',
+    body: 'Linguagem simbólica, cultura acumulativa e transformação ambiental em larga escala tornam Homo sapiens uma espécie singular. Esse ponto encerra a jornada principal desta campanha.',
+  },
+];
 
 const GAME_OVER_QUOTES: GameOverQuote[] = [
   {
@@ -133,34 +301,52 @@ function choosePreferredEvolutionStep(
   return ranked[0]?.step ?? null;
 }
 
+function getHexNeighborCoordsForGrid(x: number, y: number): Array<{ x: number; y: number }> {
+  const isOddRow = y % 2 === 1;
+  const offsets = isOddRow
+    ? [
+        { dx: -1, dy: 0 },
+        { dx: 1, dy: 0 },
+        { dx: 0, dy: -1 },
+        { dx: 1, dy: -1 },
+        { dx: 0, dy: 1 },
+        { dx: 1, dy: 1 },
+      ]
+    : [
+        { dx: -1, dy: 0 },
+        { dx: 1, dy: 0 },
+        { dx: -1, dy: -1 },
+        { dx: 0, dy: -1 },
+        { dx: -1, dy: 1 },
+        { dx: 0, dy: 1 },
+      ];
 
-function generateRandomTerrain(): Biome[][] {
+  return offsets
+    .map(({ dx, dy }) => ({ x: x + dx, y: y + dy }))
+    .filter((cell) => cell.x >= 0 && cell.y >= 0 && cell.x < GRID_SIZE && cell.y < GRID_SIZE);
+}
+
+
+function generateRandomTerrain(): { terrain: Biome[][]; tileEnergy: number[][] } {
+  // Retry until the board has enough connected biome variety for progression.
+  // eslint-disable-next-line no-constant-condition
   while (true) {
     const rawLand = Array.from({ length: GRID_SIZE }, () => Array.from({ length: GRID_SIZE }, () => random() < 0.52));
-
+    // ... rest of smoothing logic ...
     for (let pass = 0; pass < 2; pass += 1) {
       const next = rawLand.map((row) => [...row]);
       for (let y = 0; y < GRID_SIZE; y += 1) {
         for (let x = 0; x < GRID_SIZE; x += 1) {
           let landNeighbors = 0;
           let totalNeighbors = 0;
-
-          for (let dy = -1; dy <= 1; dy += 1) {
-            for (let dx = -1; dx <= 1; dx += 1) {
-              if (dx === 0 && dy === 0) continue;
-              const nx = x + dx;
-              const ny = y + dy;
-              if (nx < 0 || ny < 0 || nx >= GRID_SIZE || ny >= GRID_SIZE) continue;
-              totalNeighbors += 1;
-              if (rawLand[ny][nx]) landNeighbors += 1;
-            }
+          for (const { x: nx, y: ny } of getHexNeighborCoordsForGrid(x, y)) {
+            totalNeighbors += 1;
+            if (rawLand[ny][nx]) landNeighbors += 1;
           }
-
           if (landNeighbors >= Math.ceil(totalNeighbors * 0.55)) next[y][x] = true;
           else if (landNeighbors <= Math.floor(totalNeighbors * 0.3)) next[y][x] = false;
         }
       }
-
       for (let y = 0; y < GRID_SIZE; y += 1) {
         for (let x = 0; x < GRID_SIZE; x += 1) {
           rawLand[y][x] = next[y][x];
@@ -171,13 +357,11 @@ function generateRandomTerrain(): Biome[][] {
     const terrain: Biome[][] = Array.from({ length: GRID_SIZE }, (_, y) =>
       Array.from({ length: GRID_SIZE }, (_, x) => {
         if (!rawLand[y][x]) return 'ocean';
-
         const adjacentToOcean =
           (x > 0 && !rawLand[y][x - 1])
           || (x < GRID_SIZE - 1 && !rawLand[y][x + 1])
           || (y > 0 && !rawLand[y - 1][x])
           || (y < GRID_SIZE - 1 && !rawLand[y + 1][x]);
-
         return adjacentToOcean ? 'coast' : 'land';
       }),
     );
@@ -195,15 +379,7 @@ function generateRandomTerrain(): Biome[][] {
         else if (biome === 'coast') coastCount += 1;
         else landCount += 1;
 
-        const neighbors = [
-          [x + 1, y],
-          [x - 1, y],
-          [x, y + 1],
-          [x, y - 1],
-        ];
-
-        for (const [nx, ny] of neighbors) {
-          if (nx < 0 || ny < 0 || nx >= GRID_SIZE || ny >= GRID_SIZE) continue;
+        for (const { x: nx, y: ny } of getHexNeighborCoordsForGrid(x, y)) {
           const neighbor = terrain[ny][nx];
           if (biome === 'ocean' && neighbor === 'coast') oceanCoastAdjacency = true;
           if (biome === 'coast' && neighbor === 'land') coastLandAdjacency = true;
@@ -218,7 +394,15 @@ function generateRandomTerrain(): Biome[][] {
       && oceanCoastAdjacency
       && coastLandAdjacency
     ) {
-      return terrain;
+      const tileEnergy = terrain.map((row) =>
+        row.map((biome) => {
+          const roll = random();
+          if (biome === 'ocean') return roll < 0.15 ? 0 : roll < 0.6 ? 1 : roll < 0.92 ? 2 : 3;
+          if (biome === 'coast') return roll < 0.25 ? 0 : roll < 0.7 ? 1 : roll < 0.96 ? 2 : 3;
+          return roll < 0.5 ? 0 : roll < 0.85 ? 1 : roll < 0.98 ? 2 : 3;
+        })
+      );
+      return { terrain, tileEnergy };
     }
   }
 }
@@ -226,6 +410,7 @@ function generateRandomTerrain(): Biome[][] {
 export class TurnGameScene {
   private readonly hud: TurnHUD;
   private terrain: Biome[][] = [];
+  private tileEnergy: number[][] = [];
   private readonly colonies = new Map<number, Colony>();
   private readonly logLines: string[] = [];
   private readonly actedColonyIds = new Set<number>();
@@ -236,6 +421,8 @@ export class TurnGameScene {
   private nextColonyId = 1;
   private turn = 1;
   private phase: TurnPhase = 'player';
+  private currentEvent: TurnEvent | null = null;
+  private eventLogMessage = '';
   private actionPoints = 0;
   private stageIndex = 0;
   private gameWon = false;
@@ -252,6 +439,13 @@ export class TurnGameScene {
   private terminalInfoBenefits: string[] = [];
   private terminalInfoBiology = '';
   private readonly terminalInfoShownColonyIds = new Set<number>();
+  private milestoneInfoVisible = false;
+  private milestoneInfoTitle = '';
+  private milestoneInfoWhen = '';
+  private milestoneInfoLead = '';
+  private milestoneInfoBody = '';
+  private readonly shownMilestoneIds = new Set<string>();
+  private readonly pendingMilestoneIds: string[] = [];
   private readonly floatingDeltas: FloatingDelta[] = [];
   private readonly extinctionBursts: ExtinctionBurst[] = [];
   private gameOverTitle = '';
@@ -259,18 +453,31 @@ export class TurnGameScene {
   private gameOverQuoteAuthor = '';
   private gameOverDetail = '';
   private cellSize = 0;
+  private hexRadius = 0;
+  private hexWidth = 0;
+  private hexHeight = 0;
+  private hexRowStep = 0;
   private offsetX = 0;
   private offsetY = 0;
-  private boardSize = 0;
+  private boardWidth = 0;
+  private boardHeight = 0;
   private isDesktop = false;
+  private eventsEnabled = true;
 
-  constructor(hud: TurnHUD) {
+  constructor(hud: TurnHUD, options?: { disableEvents?: boolean }) {
     this.hud = hud;
-    this.terrain = generateRandomTerrain();
-    this.seedOpeningColonies();
+    if (options?.disableEvents) {
+      this.eventsEnabled = false;
+    }
+    const { terrain, tileEnergy } = generateRandomTerrain();
+    this.terrain = terrain;
+    this.tileEnergy = tileEnergy;
+    const openingColony = this.seedOpeningColonies();
     this.startTurn();
-    this.selectedColonyId = 2;
-    this.pushLog('Bactérias primitivas surgiram no oceano. Selecione uma colônia e use suas 3 ações.');
+    this.selectedColonyId = openingColony.id;
+    this.queueReachedMilestones();
+    this.showNextMilestoneInfo();
+    this.pushLog('Uma bactéria primitiva surgiu no oceano em um tile com nutrientes. Selecione a colônia e use sua ação.');
     this.updateHUD();
     this.registerKeyboardShortcuts();
   }
@@ -286,6 +493,8 @@ export class TurnGameScene {
     this.nextColonyId = 1;
     this.turn = 1;
     this.phase = 'player';
+    this.currentEvent = null;
+    this.eventLogMessage = '';
     this.actionPoints = 0;
     this.stageIndex = 0;
     this.gameWon = false;
@@ -302,17 +511,28 @@ export class TurnGameScene {
     this.terminalInfoBenefits = [];
     this.terminalInfoBiology = '';
     this.terminalInfoShownColonyIds.clear();
+    this.milestoneInfoVisible = false;
+    this.milestoneInfoTitle = '';
+    this.milestoneInfoWhen = '';
+    this.milestoneInfoLead = '';
+    this.milestoneInfoBody = '';
+    this.shownMilestoneIds.clear();
+    this.pendingMilestoneIds.length = 0;
     this.floatingDeltas.length = 0;
     this.extinctionBursts.length = 0;
     this.gameOverTitle = '';
     this.gameOverQuote = '';
     this.gameOverQuoteAuthor = '';
     this.gameOverDetail = '';
-    this.terrain = generateRandomTerrain();
-    this.seedOpeningColonies();
+    const { terrain, tileEnergy } = generateRandomTerrain();
+    this.terrain = terrain;
+    this.tileEnergy = tileEnergy;
+    const openingColony = this.seedOpeningColonies();
     this.startTurn();
-    this.selectedColonyId = 2;
-    this.pushLog('BactÃ©rias primitivas surgiram no oceano. Selecione uma colÃ´nia e use suas 3 aÃ§Ãµes.');
+    this.selectedColonyId = openingColony.id;
+    this.queueReachedMilestones();
+    this.showNextMilestoneInfo();
+    this.pushLog('Uma bactéria primitiva surgiu no oceano em um tile com nutrientes. Selecione a colônia e use sua ação.');
     this.updateHUD();
   }
 
@@ -326,8 +546,8 @@ export class TurnGameScene {
       if (overlay?.querySelector('.tree-modal:not(.hidden), .colony-info-modal:not(.hidden)')) return;
 
       switch (e.key.toLowerCase()) {
-        case 'c':
-          if (this.selectedColonyId !== null && this.mode === 'idle') this.performConsolidate();
+        case 'x':
+          if (this.selectedColonyId !== null && this.mode === 'idle') this.performExplore();
           break;
         case 'a':
           if (this.selectedColonyId !== null && this.mode === 'idle') this.performAdapt();
@@ -362,17 +582,18 @@ export class TurnGameScene {
 
     const availableWidth = Math.max(200, width - panelWidth - sidePadding * 2);
     const availableHeight = Math.max(200, height - topInset - bottomInset - 8);
-    this.boardSize = Math.min(availableWidth, availableHeight);
-    this.cellSize = Math.floor(this.boardSize / GRID_SIZE);
-    this.boardSize = this.cellSize * GRID_SIZE;
+    const maxRadiusByWidth = availableWidth / (HEX_SQRT3 * (GRID_SIZE + 0.5));
+    const maxRadiusByHeight = availableHeight / (2 + 1.5 * (GRID_SIZE - 1));
+    this.hexRadius = Math.max(12, Math.floor(Math.min(maxRadiusByWidth, maxRadiusByHeight)));
+    this.hexWidth = HEX_SQRT3 * this.hexRadius;
+    this.hexHeight = this.hexRadius * 2;
+    this.hexRowStep = this.hexRadius * 1.5;
+    this.cellSize = Math.floor(this.hexWidth);
+    this.boardWidth = this.hexWidth * GRID_SIZE + this.hexWidth / 2;
+    this.boardHeight = this.hexHeight + this.hexRowStep * (GRID_SIZE - 1);
 
-    if (isDesktop) {
-      this.offsetX = sidePadding;
-    } else {
-      // Center the board horizontally on mobile
-      this.offsetX = Math.floor((width - this.boardSize) / 2);
-    }
-    this.offsetY = topInset + Math.floor((availableHeight - this.boardSize) / 2);
+    this.offsetX = Math.floor((width - this.boardWidth) / 2);
+    this.offsetY = Math.floor((height - this.boardHeight) / 2);
 
     const overlay = document.getElementById('hud-overlay');
     if (overlay) {
@@ -391,13 +612,14 @@ export class TurnGameScene {
 
   render(ctx: CanvasRenderingContext2D): void {
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-    ctx.fillStyle = '#ebe2d3';
+    ctx.fillStyle = WORLD_COLORS.background;
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     this.drawBoard(ctx);
     this.drawColonies(ctx);
   }
 
   handlePointerDown(clientX: number, clientY: number): void {
+    if (this.milestoneInfoVisible || this.terminalInfoVisible) return;
     if (this.phase !== 'player' || this.gameOver) return;
 
     const cell = this.getCellAtPoint(clientX, clientY);
@@ -439,24 +661,26 @@ export class TurnGameScene {
     this.updateHUD();
   }
 
-  performConsolidate(): void {
+  performExplore(): void {
     if (this.phase !== 'player' || this.gameOver) return;
     const colony = this.getSelectedColony();
     if (!colony || !this.isColonyEstablished(colony)) return;
-    if (colony.autoConsolidate) {
+    if (colony.autoExplore) {
+      colony.autoExplore = false;
       colony.autoConsolidate = false;
       this.mode = 'idle';
-      this.pushLog(`A colonia em ${this.formatCellLabel(colony.x, colony.y)} deixou de consolidar automaticamente.`);
+      this.pushLog(`A colonia em ${this.formatCellLabel(colony.x, colony.y)} deixou de explorar automaticamente.`);
       this.updateHUD();
       return;
     }
     if (!this.canColonyAct(colony)) return;
+    colony.autoExplore = true;
     colony.autoConsolidate = true;
-    colony.consolidationBiomassPending = true;
+    colony.explorationBiomassPending = true;
     this.consumeColonyAction(colony.id);
     this.mode = 'idle';
     this.selectNextAvailableColony(colony.id);
-    this.pushLog(`A colônia em ${this.formatCellLabel(colony.x, colony.y)} foi consolidada.`);
+    this.pushLog(`A colônia em ${this.formatCellLabel(colony.x, colony.y)} começou a explorar o tile.`);
     this.updateHUD();
   }
 
@@ -482,12 +706,14 @@ export class TurnGameScene {
 
     colony.lifeFormId = nextEvolution.id;
     this.syncColonyTraversal(colony);
+    colony.autoExplore = false;
     colony.autoConsolidate = false;
     colony.adaptationPoints -= 1;
     this.consumeColonyAction(colony.id);
     this.syncWorldStage();
 
     this.pushLog(`A colônia em ${this.formatCellLabel(colony.x, colony.y)} evoluiu para ${nextEvolution.name}.`);
+    this.queueReachedMilestones();
 
     if (nextEvolution.id === HUMAN_EVOLUTION_ID) {
       this.gameWon = true;
@@ -502,6 +728,9 @@ export class TurnGameScene {
     }
     if (!this.gameWon && this.isTerminalColony(colony)) {
       this.showTerminalInfo(colony);
+    }
+    if (!this.terminalInfoVisible) {
+      this.showNextMilestoneInfo();
     }
     this.updateHUD();
   }
@@ -534,6 +763,14 @@ export class TurnGameScene {
 
   dismissTerminalInfo(): void {
     this.terminalInfoVisible = false;
+    this.showNextMilestoneInfo();
+    this.updateHUD();
+  }
+
+  dismissMilestoneInfo(): void {
+    this.milestoneInfoVisible = false;
+    this.milestoneInfoWhen = '';
+    this.showNextMilestoneInfo();
     this.updateHUD();
   }
 
@@ -581,6 +818,7 @@ export class TurnGameScene {
     this.addColony(x, y, {
       population: 2,
       lifeFormId: 'bacteria_primitiva',
+      autoExplore: true,
       autoConsolidate: true,
     });
     this.mode = 'idle';
@@ -601,8 +839,11 @@ export class TurnGameScene {
     if (this.gameWon || this.gameOver || this.phase !== 'player') return;
     const previousSelectedColonyId = this.selectedColonyId;
     this.mode = 'idle';
-    this.resolveAutoConsolidationOrders();
-    this.resolveImmediateConsolidationRewards();
+    this.currentEvent = null; // Limpa o evento do turno
+    this.eventLogMessage = '';
+    this.resolveImplicitExplorationOrders();
+    this.resolveAutoExplorationOrders();
+    this.resolveImmediateExplorationRewards();
     this.resolveProduction();
     this.checkProgression();
     if (this.gameWon) {
@@ -614,7 +855,7 @@ export class TurnGameScene {
     this.updateHUD();
   }
 
-  private seedOpeningColonies(): void {
+  private seedOpeningColonies(): Colony {
     const oceanCells: Array<{ x: number; y: number }> = [];
     for (let y = 0; y < GRID_SIZE; y += 1) {
       for (let x = 0; x < GRID_SIZE; x += 1) {
@@ -624,15 +865,15 @@ export class TurnGameScene {
       }
     }
 
-    const chosen = oceanCells
-      .map((cell) => ({ cell, roll: random() }))
-      .sort((a, b) => a.roll - b.roll)
-      .slice(0, 3)
-      .map(({ cell }) => cell);
-
-    for (const cell of chosen) {
-      this.addColony(cell.x, cell.y, { createdTurn: 0 });
+    const energizedOceanCells = oceanCells.filter(({ x, y }) => this.tileEnergy[y][x] > 0);
+    if (energizedOceanCells.length > 0) {
+      const chosen = energizedOceanCells[Math.floor(random() * energizedOceanCells.length)];
+      return this.addColony(chosen.x, chosen.y, { createdTurn: 0 });
     }
+
+    const fallback = oceanCells[Math.floor(random() * oceanCells.length)];
+    this.tileEnergy[fallback.y][fallback.x] = 1;
+    return this.addColony(fallback.x, fallback.y, { createdTurn: 0 });
   }
 
   private addColony(x: number, y: number, options?: Partial<Colony>): Colony {
@@ -647,10 +888,11 @@ export class TurnGameScene {
       coastAdapted: options?.coastAdapted ?? false,
       landAdapted: options?.landAdapted ?? false,
       fortified: options?.fortified ?? false,
-      autoConsolidate: options?.autoConsolidate ?? false,
+      autoExplore: options?.autoExplore ?? options?.autoConsolidate ?? false,
+      autoConsolidate: options?.autoConsolidate ?? options?.autoExplore ?? false,
       busyUntilTurn: options?.busyUntilTurn ?? 0,
-      consolidatingUntilTurn: options?.consolidatingUntilTurn ?? null,
-      consolidationBiomassPending: options?.consolidationBiomassPending ?? false,
+      exploringUntilTurn: options?.exploringUntilTurn ?? null,
+      explorationBiomassPending: options?.explorationBiomassPending ?? false,
       gestatingUntilTurn: options?.gestatingUntilTurn ?? null,
       createdTurn: options?.createdTurn ?? this.turn,
       parentColonyId: options?.parentColonyId ?? null,
@@ -667,6 +909,16 @@ export class TurnGameScene {
     this.naturalSelectionResolvedCount = 0;
     this.naturalSelectionBanner = '';
     this.naturalSelectionDetail = '';
+    
+    // Rola evento do turno se habilitado
+    this.currentEvent = this.eventsEnabled ? rollTurnEvent(this.getHighestWorldStage()) : null;
+    if (this.currentEvent) {
+      this.eventLogMessage = this.currentEvent.apply?.(this) || '';
+      this.pushLog(`${this.currentEvent.emoji} Evento: ${this.currentEvent.name}. ${this.eventLogMessage}`);
+    } else {
+      this.eventLogMessage = '';
+    }
+
     this.resolveTurnTransitions();
     this.actedColonyIds.clear();
     this.turnStartColonyIds = new Set(
@@ -688,15 +940,23 @@ export class TurnGameScene {
     }
   }
 
-  private resolveImmediateConsolidationRewards(): void {
+  private resolveImmediateExplorationRewards(): void {
     for (const colony of this.colonies.values()) {
-      if (!colony.consolidationBiomassPending) continue;
-      colony.consolidationBiomassPending = false;
-      colony.consolidatingUntilTurn = null;
-      colony.biomass += 2;
+      if (!colony.explorationBiomassPending) continue;
+      colony.explorationBiomassPending = false;
+      colony.exploringUntilTurn = null;
+      
+      const energy = this.tileEnergy[colony.y][colony.x];
+      const def = EVOLUTION_BY_ID.get(colony.lifeFormId);
+      const multiplier = def ? GROUP_ENERGY_MULTIPLIER[def.group] : 1;
+      const gained = energy * multiplier;
+      colony.biomass += gained;
       colony.population += 1;
       colony.fortified = true;
-      this.pushLog(`Consolidacao em ${this.formatCellLabel(colony.x, colony.y)}: +2 biomassa local e +1 populacao antes da Selecao Natural.`);
+      this.pushLog(`Exploração em ${this.formatCellLabel(colony.x, colony.y)}: +${formatBiomass(gained)} nutrientes e +1 população.`);
+      if (gained > 0) {
+        this.spawnFloatingDelta(colony.id, `+${formatBiomass(gained)}`, WORLD_COLORS.biomassGain);
+      }
     }
   }
 
@@ -717,13 +977,50 @@ export class TurnGameScene {
     this.terminalInfoBiology = 'Na biologia real, evolução não é uma escada com destino obrigatório. Muitos ramos deixam de gerar formas “mais avançadas” e, ainda assim, seguem extremamente bem adaptados ao próprio nicho por milhões de anos. Corais, tubarões e outros grupos antigos persistem porque encontraram estratégias estáveis, não porque fracassaram em evoluir.';
   }
 
-  private resolveAutoConsolidationOrders(): void {
+  private queueReachedMilestones(): void {
+    const reachedForms = new Set([...this.colonies.values()].map((colony) => colony.lifeFormId));
+    for (const milestone of LIFE_MILESTONES) {
+      if (!reachedForms.has(milestone.triggerLifeFormId)) continue;
+      if (this.shownMilestoneIds.has(milestone.id)) continue;
+      if (this.pendingMilestoneIds.includes(milestone.id)) continue;
+      this.pendingMilestoneIds.push(milestone.id);
+    }
+  }
+
+  private showNextMilestoneInfo(): void {
+    if (this.milestoneInfoVisible || this.terminalInfoVisible) return;
+
+    const nextMilestoneId = this.pendingMilestoneIds.shift();
+    if (!nextMilestoneId) return;
+
+    const milestone = LIFE_MILESTONES.find((item) => item.id === nextMilestoneId);
+    if (!milestone) return;
+
+    this.shownMilestoneIds.add(milestone.id);
+    this.milestoneInfoVisible = true;
+    this.milestoneInfoTitle = milestone.title;
+    this.milestoneInfoWhen = milestone.when;
+    this.milestoneInfoLead = milestone.lead;
+    this.milestoneInfoBody = milestone.body;
+  }
+
+  private resolveAutoExplorationOrders(): void {
     for (const colony of this.colonies.values()) {
-      if (!colony.autoConsolidate) continue;
+      if (!colony.autoExplore) continue;
       if (!this.canColonyAct(colony)) continue;
-      colony.consolidationBiomassPending = true;
+      colony.explorationBiomassPending = true;
       this.consumeColonyAction(colony.id);
-      this.pushLog(`A colonia em ${this.formatCellLabel(colony.x, colony.y)} consolidou automaticamente neste turno.`);
+      this.pushLog(`A colonia em ${this.formatCellLabel(colony.x, colony.y)} explorou automaticamente neste turno.`);
+    }
+  }
+
+  private resolveImplicitExplorationOrders(): void {
+    for (const colony of this.colonies.values()) {
+      if (!this.canColonyAct(colony)) continue;
+      if (colony.autoExplore) continue;
+      colony.autoExplore = true;
+      colony.autoConsolidate = true;
+      this.pushLog(`A colonia em ${this.formatCellLabel(colony.x, colony.y)} ficou sem ordem e entrou em exploração automática.`);
     }
   }
 
@@ -742,37 +1039,66 @@ export class TurnGameScene {
   private drawBoard(ctx: CanvasRenderingContext2D): void {
     for (let y = 0; y < GRID_SIZE; y++) {
       for (let x = 0; x < GRID_SIZE; x++) {
-        const px = this.offsetX + x * this.cellSize;
-        const py = this.offsetY + y * this.cellSize;
+        const { x: centerX, y: centerY } = this.getCellCenter(x, y);
         ctx.fillStyle = this.getBiomeColor(this.terrain[y][x]);
-        ctx.fillRect(px, py, this.cellSize, this.cellSize);
+        this.drawHexCell(ctx, centerX, centerY);
+
+        const energy = this.tileEnergy[y][x];
+        if (energy > 0) {
+          ctx.fillStyle = WORLD_COLORS.energyPip;
+          const pipRadius = this.cellSize * 0.05;
+          const spacing = this.cellSize * 0.12;
+          const pipY = centerY - this.hexRadius * 0.55; // Move para o topo do hexágono
+          if (energy === 1) {
+            ctx.beginPath();
+            ctx.arc(centerX, pipY, pipRadius, 0, Math.PI * 2);
+            ctx.fill();
+          } else if (energy === 2) {
+            ctx.beginPath();
+            ctx.arc(centerX - spacing / 2, pipY, pipRadius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(centerX + spacing / 2, pipY, pipRadius, 0, Math.PI * 2);
+            ctx.fill();
+          } else if (energy === 3) {
+            ctx.beginPath();
+            ctx.arc(centerX - spacing, pipY, pipRadius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(centerX, pipY, pipRadius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(centerX + spacing, pipY, pipRadius, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
 
         if (this.isExpandTarget(x, y)) {
-          ctx.fillStyle = 'rgba(255, 244, 131, 0.38)';
-          ctx.fillRect(px, py, this.cellSize, this.cellSize);
+          ctx.fillStyle = WORLD_COLORS.expandHighlight;
+          this.drawHexCell(ctx, centerX, centerY);
         }
 
         if (this.isSeedTarget(x, y)) {
-          ctx.fillStyle = 'rgba(100, 180, 255, 0.3)';
-          ctx.fillRect(px, py, this.cellSize, this.cellSize);
+          ctx.fillStyle = WORLD_COLORS.seedHighlight;
+          this.drawHexCell(ctx, centerX, centerY);
         }
 
         if (this.hoverCell?.x === x && this.hoverCell.y === y) {
-          ctx.strokeStyle = '#f4f0d0';
+          ctx.strokeStyle = WORLD_COLORS.hoverStroke;
           ctx.lineWidth = 3;
-          ctx.strokeRect(px + 2, py + 2, this.cellSize - 4, this.cellSize - 4);
+          this.strokeHexCell(ctx, centerX, centerY, Math.max(0, this.hexRadius - 2));
         }
 
         const colony = this.getColonyAt(x, y);
         if (colony?.id === this.selectedColonyId) {
-          ctx.strokeStyle = '#6f4c24';
+          ctx.strokeStyle = WORLD_COLORS.selectedStroke;
           ctx.lineWidth = 4;
-          ctx.strokeRect(px + 3, py + 3, this.cellSize - 6, this.cellSize - 6);
+          this.strokeHexCell(ctx, centerX, centerY, Math.max(0, this.hexRadius - 3));
         }
 
-        ctx.strokeStyle = 'rgba(76, 63, 40, 0.18)';
+        ctx.strokeStyle = WORLD_COLORS.gridStroke;
         ctx.lineWidth = 1;
-        ctx.strokeRect(px, py, this.cellSize, this.cellSize);
+        this.strokeHexCell(ctx, centerX, centerY, this.hexRadius);
       }
     }
   }
@@ -783,20 +1109,22 @@ export class TurnGameScene {
     ctx.font = `${Math.floor(this.cellSize * 0.54)}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
 
     for (const colony of this.colonies.values()) {
-      const centerX = this.offsetX + colony.x * this.cellSize + this.cellSize / 2;
-      const centerY = this.offsetY + colony.y * this.cellSize + this.cellSize / 2;
+      const { x: centerX, y: centerY } = this.getCellCenter(colony.x, colony.y);
       const isGestating = !this.isColonyEstablished(colony);
 
       ctx.save();
       ctx.globalAlpha = isGestating ? 0.38 : 1;
+      const emojiFilter = EVOLUTION_BY_ID.get(colony.lifeFormId)?.emojiFilter;
+      if (emojiFilter) ctx.filter = emojiFilter;
       ctx.fillText(this.getColonyEmoji(colony), centerX, centerY);
+      ctx.filter = 'none';
 
       const badgeY = centerY + this.cellSize * 0.28;
       const badgeWidth = this.cellSize * 0.34;
       const badgeHeight = this.cellSize * 0.2;
       const badgeRadius = badgeHeight / 2;
-      ctx.fillStyle = 'rgba(255, 248, 238, 0.94)';
-      ctx.strokeStyle = 'rgba(111, 76, 36, 0.28)';
+      ctx.fillStyle = WORLD_COLORS.badgeFill;
+      ctx.strokeStyle = WORLD_COLORS.badgeStroke;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.roundRect(centerX - badgeWidth / 2, badgeY - badgeHeight / 2, badgeWidth, badgeHeight, badgeRadius);
@@ -804,34 +1132,36 @@ export class TurnGameScene {
       ctx.stroke();
 
       ctx.font = `600 ${Math.floor(this.cellSize * 0.18)}px system-ui, sans-serif`;
-      ctx.fillStyle = '#5f452b';
-      ctx.fillText(String(colony.biomass), centerX, badgeY + 0.5);
+      ctx.fillStyle = WORLD_COLORS.badgeText;
+      ctx.fillText(formatBiomass(colony.biomass), centerX, badgeY + 0.5);
 
       if (colony.coastAdapted || colony.landAdapted) {
         ctx.beginPath();
-        ctx.fillStyle = colony.landAdapted ? '#7aa34c' : '#c4813f';
+        ctx.fillStyle = colony.landAdapted ? WORLD_COLORS.adaptationReady : WORLD_COLORS.adaptationSpent;
         ctx.arc(centerX + this.cellSize * 0.24, centerY - this.cellSize * 0.24, this.cellSize * 0.08, 0, Math.PI * 2);
         ctx.fill();
       }
 
       if (colony.fortified) {
         ctx.beginPath();
-        ctx.strokeStyle = '#ffffff';
+        ctx.strokeStyle = WORLD_COLORS.fortifyStroke;
         ctx.lineWidth = 2;
         ctx.arc(centerX, centerY, this.cellSize * 0.31, 0, Math.PI * 2);
         ctx.stroke();
       }
 
       ctx.font = `${Math.floor(this.cellSize * 0.54)}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
-      ctx.fillStyle = '#111111';
+      ctx.fillStyle = WORLD_COLORS.text;
       ctx.restore();
 
-      if (colony.consolidatingUntilTurn !== null) {
+      if (colony.autoExplore) {
         ctx.beginPath();
-        ctx.strokeStyle = '#f7d774';
-        ctx.lineWidth = 3;
-        ctx.arc(centerX, centerY, this.cellSize * 0.36, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(243, 211, 107, 0.3)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.arc(centerX, centerY, this.cellSize * 0.38, 0, Math.PI * 2);
         ctx.stroke();
+        ctx.setLineDash([]);
       }
 
     }
@@ -856,11 +1186,26 @@ export class TurnGameScene {
   }
 
   private spawnFloatingDelta(colonyId: number, text: string, color: string): void {
+    // Procura um delta existente para esta colônia que ainda esteja no início (fresco)
+    // Isso evita que múltiplos ganhos no mesmo turno (ex: Consolidação + Tile) se sobreponham
+    const existing = this.floatingDeltas.find(d => d.colonyId === colonyId && d.framesLeft > 60);
+    
+    if (existing) {
+      const existingVal = parseInt(existing.text) || 0;
+      const newVal = parseInt(text) || 0;
+      const total = existingVal + newVal;
+      
+      existing.text = (total >= 0 ? "+" : "") + total;
+      existing.color = total >= 0 ? WORLD_COLORS.biomassGain : WORLD_COLORS.biomassLoss;
+      existing.framesLeft = 90; // Reseta o tempo para o usuário ver o novo total
+      return;
+    }
+
     this.floatingDeltas.push({
       colonyId,
       text,
       color,
-      framesLeft: 54,
+      framesLeft: 90,
     });
   }
 
@@ -869,28 +1214,35 @@ export class TurnGameScene {
     if (this.floatingDeltas.length > 0) {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = `${Math.floor(this.cellSize * 0.24)}px system-ui, sans-serif`;
+      // Fonte maior e em negrito
+      ctx.font = `bold ${Math.floor(this.cellSize * 0.34)}px system-ui, sans-serif`;
 
       for (const delta of this.floatingDeltas) {
         const colony = this.colonies.get(delta.colonyId);
         if (!colony) continue;
 
-        const centerX = this.offsetX + colony.x * this.cellSize + this.cellSize / 2;
-        const progress = 1 - delta.framesLeft / 54;
-        const centerY = this.offsetY + colony.y * this.cellSize + this.cellSize * (0.1 - progress * 0.55);
-        ctx.globalAlpha = Math.max(0, Math.min(1, delta.framesLeft / 40));
+        const { x: centerX, y: centerYBase } = this.getCellCenter(colony.x, colony.y);
+        const progress = 1 - delta.framesLeft / 90;
+        const centerY = centerYBase + this.cellSize * (0.05 - progress * 0.45);
+        
+        ctx.globalAlpha = Math.max(0, Math.min(1, delta.framesLeft / 30));
+        
+        // Adiciona um contorno branco para contraste
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 4;
+        ctx.strokeText(delta.text, centerX, centerY);
+        
         ctx.fillStyle = delta.color;
         ctx.fillText(delta.text, centerX, centerY);
       }
     }
 
     for (const burst of this.extinctionBursts) {
-      const centerX = this.offsetX + burst.x * this.cellSize + this.cellSize / 2;
-      const centerY = this.offsetY + burst.y * this.cellSize + this.cellSize / 2;
+      const { x: centerX, y: centerY } = this.getCellCenter(burst.x, burst.y);
       const progress = 1 - burst.framesLeft / 42;
       const radius = this.cellSize * (0.22 + progress * 0.35);
       ctx.globalAlpha = Math.max(0, 0.9 - progress);
-      ctx.strokeStyle = 'rgba(138, 58, 45, 0.95)';
+      ctx.strokeStyle = WORLD_COLORS.extinctionStroke;
       ctx.lineWidth = 2.5;
       ctx.beginPath();
       ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
@@ -994,7 +1346,7 @@ export class TurnGameScene {
         }
       }
     }
-    this.pushLog('Fim do turno: adaptações ecológicas foram redistribuídas.');
+    this.pushLog('Fim do turno: nutrientes gerados pelo ecossistema.');
   }
 
   private checkProgression(): void {
@@ -1109,7 +1461,7 @@ export class TurnGameScene {
 
       colony.biomass += supportBiomass;
       this.naturalSelectionResolvedCount += 1;
-      this.spawnFloatingDelta(colony.id, `+${supportBiomass}`, '#7ecf73');
+      this.spawnFloatingDelta(colony.id, `+${supportBiomass}`, WORLD_COLORS.biomassGain);
       this.naturalSelectionSummaryLines.push(`${this.getColonyName(colony)} em ${this.formatCellLabel(colony.x, colony.y)}: +${supportBiomass} biomassa por suporte terminal.`);
       this.pushLog(`Selecao Natural: ${event.detail}`);
       this.naturalSelectionDetail = event.detail;
@@ -1119,7 +1471,7 @@ export class TurnGameScene {
     if (event.kind === 'attrition') {
       colony.biomass = Math.max(0, colony.biomass - 1);
       this.naturalSelectionResolvedCount += 1;
-      this.spawnFloatingDelta(colony.id, '-1', '#f7df8b');
+      this.spawnFloatingDelta(colony.id, '-1', WORLD_COLORS.biomassLoss);
       if (colony.biomass <= 0) {
         this.extinctColony(colony, `${event.detail} Ficou sem biomassa local.`, 'biomassa local zerada');
         return;
@@ -1208,6 +1560,7 @@ export class TurnGameScene {
     }
 
     colony.biomass -= 1;
+    colony.autoExplore = false;
     colony.autoConsolidate = false;
     this.addColony(x, y, {
       population: 1,
@@ -1215,6 +1568,7 @@ export class TurnGameScene {
       lifeFormId: colony.lifeFormId,
       coastAdapted: colony.coastAdapted,
       landAdapted: colony.landAdapted,
+      autoExplore: true,
       autoConsolidate: true,
       createdTurn: this.turn,
     });
@@ -1229,7 +1583,7 @@ export class TurnGameScene {
     const colony = this.getSelectedColony();
     if (!colony || this.mode !== 'expand') return false;
     if (this.getColonyAt(x, y)) return false;
-    if (Math.abs(colony.x - x) + Math.abs(colony.y - y) !== 1) return false;
+    if (!this.getNeighborCoords(colony.x, colony.y).some((cell) => cell.x === x && cell.y === y)) return false;
     return this.canOccupy(colony, this.terrain[y][x]);
   }
 
@@ -1247,12 +1601,7 @@ export class TurnGameScene {
   private hasExpandTarget(colony: Colony | null): boolean {
     if (!colony || colony.biomass <= 0 || !this.canColonyAct(colony)) return false;
 
-    const candidates = [
-      { x: colony.x + 1, y: colony.y },
-      { x: colony.x - 1, y: colony.y },
-      { x: colony.x, y: colony.y + 1 },
-      { x: colony.x, y: colony.y - 1 },
-    ];
+    const candidates = this.getNeighborCoords(colony.x, colony.y);
 
     return candidates.some(({ x, y }) => {
       if (x < 0 || y < 0 || x >= GRID_SIZE || y >= GRID_SIZE) return false;
@@ -1387,19 +1736,64 @@ export class TurnGameScene {
   }
 
   private getCellAtPoint(clientX: number, clientY: number): { x: number; y: number } | null {
-    const localX = clientX - this.offsetX;
-    const localY = clientY - this.offsetY;
-    if (localX < 0 || localY < 0 || localX >= this.boardSize || localY >= this.boardSize) return null;
-    return {
-      x: Math.floor(localX / this.cellSize),
-      y: Math.floor(localY / this.cellSize),
-    };
+    for (let y = 0; y < GRID_SIZE; y += 1) {
+      for (let x = 0; x < GRID_SIZE; x += 1) {
+        const center = this.getCellCenter(x, y);
+        if (this.isPointInHex(clientX, clientY, center.x, center.y, this.hexRadius)) {
+          return { x, y };
+        }
+      }
+    }
+    return null;
   }
 
   private getBiomeColor(biome: Biome): string {
-    if (biome === 'ocean') return '#2f6f9f';
-    if (biome === 'coast') return '#8fd3ea';
-    return '#8ca56a';
+    if (biome === 'ocean') return WORLD_COLORS.ocean;
+    if (biome === 'coast') return WORLD_COLORS.coast;
+    return WORLD_COLORS.land;
+  }
+
+  private getCellCenter(x: number, y: number): { x: number; y: number } {
+    return {
+      x: this.offsetX + this.hexWidth / 2 + x * this.hexWidth + (y % 2) * (this.hexWidth / 2),
+      y: this.offsetY + this.hexRadius + y * this.hexRowStep,
+    };
+  }
+
+  private traceHexPath(ctx: CanvasRenderingContext2D, centerX: number, centerY: number, radius: number): void {
+    const halfWidth = radius * HEX_SQRT3 / 2;
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY - radius);
+    ctx.lineTo(centerX + halfWidth, centerY - radius / 2);
+    ctx.lineTo(centerX + halfWidth, centerY + radius / 2);
+    ctx.lineTo(centerX, centerY + radius);
+    ctx.lineTo(centerX - halfWidth, centerY + radius / 2);
+    ctx.lineTo(centerX - halfWidth, centerY - radius / 2);
+    ctx.closePath();
+  }
+
+  private drawHexCell(ctx: CanvasRenderingContext2D, centerX: number, centerY: number): void {
+    this.traceHexPath(ctx, centerX, centerY, this.hexRadius);
+    ctx.fill();
+  }
+
+  private strokeHexCell(ctx: CanvasRenderingContext2D, centerX: number, centerY: number, radius: number): void {
+    this.traceHexPath(ctx, centerX, centerY, radius);
+    ctx.stroke();
+  }
+
+  private isPointInHex(pointX: number, pointY: number, centerX: number, centerY: number, radius: number): boolean {
+    const dx = Math.abs(pointX - centerX);
+    const dy = Math.abs(pointY - centerY);
+    const halfWidth = radius * HEX_SQRT3 / 2;
+
+    if (dx > halfWidth || dy > radius) return false;
+    if (dy <= radius / 2) return true;
+    return dx <= (radius - dy) * HEX_SQRT3;
+  }
+
+  private getNeighborCoords(x: number, y: number): Array<{ x: number; y: number }> {
+    return getHexNeighborCoordsForGrid(x, y);
   }
 
   private formatCellLabel(x: number, y: number): string {
@@ -1411,15 +1805,17 @@ export class TurnGameScene {
     const leadEvolution = selected ? EVOLUTION_BY_ID.get(selected.lifeFormId)! : STAGES[this.stageIndex];
     const nextEvolution = this.getNextEvolutionFor(selected);
     const selectedSummary = selected
-      ? `${this.getColonyName(selected)} — ${this.formatCellLabel(selected.x, selected.y)} — ${this.getBiomeLabel(this.terrain[selected.y][selected.x])} — pop ${selected.population}${this.getColonyStatusText(selected)}`
-      : 'Nenhuma colônia selecionada.';
+      ? `${this.getColonyName(selected)} — ${this.formatCellLabel(selected.x, selected.y)} — ${this.getBiomeLabel(this.terrain[selected.y][selected.x])} — Pop ${selected.population}${this.getColonyStatusText(selected)}`
+      : (this.hoverCell 
+        ? `${this.getBiomeLabel(this.terrain[this.hoverCell.y][this.hoverCell.x]).toUpperCase()} — ${this.formatCellLabel(this.hoverCell.x, this.hoverCell.y)} — Potencial: ${this.tileEnergy[this.hoverCell.y][this.hoverCell.x]} Nutrientes`
+        : 'Nenhuma colônia selecionada.');
     const hint = this.buildHint();
     const objective = this.phase === 'natural-selection'
       ? 'Seleção Natural'
       : nextEvolution ? `Evolua para ${nextEvolution.name}` : 'Vitória';
     const objectiveDetail = this.buildObjectiveDetail(selected);
     const isPlayerPhase = this.phase === 'player' && !this.gameOver;
-    const canConsolidate = isPlayerPhase && !this.gameWon && selected !== null && this.canColonyAct(selected);
+    const canExplore = isPlayerPhase && !this.gameWon && selected !== null && this.canColonyAct(selected);
     const canAdapt = isPlayerPhase && !this.gameWon && selected !== null && this.canColonyAct(selected) && selected.adaptationPoints > 0 && this.canSelectedAdapt();
     const adaptBlockedReason = canAdapt ? '' : this.getAdaptBlockedReason(selected);
     const canExpand = isPlayerPhase && !this.gameWon && this.hasExpandTarget(selected);
@@ -1443,8 +1839,8 @@ export class TurnGameScene {
         : this.mode === 'expand' ? 'Modo: expandir' : this.mode === 'seed' ? 'Modo: semear' : 'Modo: seleção',
       progress: (this.stageIndex / (STAGES.length - 1)) * 100,
       logLines: this.logLines,
-      canConsolidate,
-      consolidateActive: selected?.autoConsolidate ?? false,
+      canConsolidate: canExplore,
+      consolidateActive: selected?.autoExplore ?? false,
       canAdapt,
       adaptBlockedReason,
       canExpand,
@@ -1460,13 +1856,18 @@ export class TurnGameScene {
       floatingCancelVisible: isPlayerPhase && !this.gameWon && (this.mode === 'expand' || this.mode === 'seed'),
       selectedColonyName: selected ? this.getColonyName(selected) : '',
       selectedColonyDef: selected ? (EVOLUTION_BY_ID.get(selected.lifeFormId) ?? null) : null,
-      phaseBannerTitle: this.naturalSelectionBanner,
-      phaseBannerDetail: this.naturalSelectionDetail,
+      phaseBannerTitle: this.phase === 'natural-selection' ? this.naturalSelectionBanner : (this.currentEvent ? `${this.currentEvent.emoji} ${this.currentEvent.name}` : ''),
+      phaseBannerDetail: this.phase === 'natural-selection' ? this.naturalSelectionDetail : (this.currentEvent ? this.currentEvent.description : ''),
       terminalInfoVisible: this.terminalInfoVisible,
       terminalInfoTitle: this.terminalInfoTitle,
       terminalInfoLead: this.terminalInfoLead,
       terminalInfoBenefits: this.terminalInfoBenefits,
       terminalInfoBiology: this.terminalInfoBiology,
+      milestoneInfoVisible: this.milestoneInfoVisible,
+      milestoneInfoTitle: this.milestoneInfoTitle,
+      milestoneInfoWhen: this.milestoneInfoWhen,
+      milestoneInfoLead: this.milestoneInfoLead,
+      milestoneInfoBody: this.milestoneInfoBody,
       gameOverVisible: this.gameOver,
       gameOverTitle: this.gameOverTitle,
       gameOverQuote: this.gameOverQuote,
@@ -1525,8 +1926,8 @@ export class TurnGameScene {
     if (selected && this.isTerminalColony(selected)) {
       const neighbors = this.getNeighborColonies(selected).filter((n) => this.isColonyEstablished(n));
       const support = neighbors.length > 0
-        ? `Sustenta ${neighbors.length} colônia${neighbors.length > 1 ? 's' : ''} vizinha${neighbors.length > 1 ? 's' : ''} com adaptação extra.`
-        : 'Posicione colônias ativas ao redor para receber adaptação extra.';
+        ? `Sustenta ${neighbors.length} colônia${neighbors.length > 1 ? 's' : ''} vizinha${neighbors.length > 1 ? 's' : ''} com nutrientes extras.`
+        : 'Posicione colônias ativas ao redor para receber nutrientes extras.';
       return `Ecossistema autônomo: ${support} Pode ser decomposta para liberar o tile.`;
     }
     const nextEvolution = this.getNextEvolutionFor(selected);
@@ -1534,8 +1935,8 @@ export class TurnGameScene {
       return 'Selecione uma colônia e siga a linha evolutiva principal até o Homo sapiens.';
     }
 
-    if (selected.autoConsolidate) {
-      return `Consolidacao automatica ativa em ${this.formatCellLabel(selected.x, selected.y)}. Use consolidar novamente para desligar.`;
+    if (selected.autoExplore) {
+      return `Exploracao automatica ativa em ${this.formatCellLabel(selected.x, selected.y)}. Use explorar novamente para desligar.`;
     }
     const requiredBiome = this.getBiomeLabel(nextEvolution.requiredBiome);
     return `Adapte em ${requiredBiome} para avançar de ${this.getColonyName(selected)} para ${nextEvolution.name}.`;
@@ -1550,7 +1951,8 @@ export class TurnGameScene {
     }
 
     if (!selected) {
-      return `Biomassa: ${this.getBiomassPool()} — Adaptação total: ${this.getTotalAdaptationPoints()} — População total: ${this.getTotalPopulation()}`;
+      const hoverEnergy = this.hoverCell ? ` — Produção deste tile: +${this.tileEnergy[this.hoverCell.y][this.hoverCell.x]}` : '';
+      return `Nutrientes Totais: ${this.getBiomassPool()} — Adaptação total: ${this.getTotalAdaptationPoints()} — População total: ${this.getTotalPopulation()}${hoverEnergy}`;
     }
 
     if (!this.isColonyEstablished(selected)) {
@@ -1558,11 +1960,15 @@ export class TurnGameScene {
     }
 
     const nextEvolution = this.getNextEvolutionFor(selected);
+    const energy = this.tileEnergy[selected.y][selected.x];
+    const def = EVOLUTION_BY_ID.get(selected.lifeFormId);
+    const multiplier = def ? GROUP_ENERGY_MULTIPLIER[def.group] : 1;
+    const prodDetail = ` — Produção local: +${formatBiomass(energy * multiplier)} Nutrientes/turno (${multiplier}× tile)`;
     if (!nextEvolution) {
-      return 'Essa linhagem já chegou ao limite desta campanha.';
+      return `Esta linhagem já chegou ao limite desta campanha.${prodDetail}`;
     }
 
-    return `Próxima forma: ${nextEvolution.name} — Bioma exigido: ${this.getBiomeLabel(nextEvolution.requiredBiome)} — População mínima: ${nextEvolution.minPopulation} — Adaptação desta colônia: ${selected.adaptationPoints}`;
+    return `Próxima forma: ${nextEvolution.name} — Bioma: ${this.getBiomeLabel(nextEvolution.requiredBiome)} — População mínima: ${nextEvolution.minPopulation}${prodDetail}`;
   }
   private getBiomeLabel(biome: Biome): string {
     if (biome === 'ocean') return 'oceano';
@@ -1577,8 +1983,8 @@ export class TurnGameScene {
     if (this.isColonyBusy(colony)) {
       return ` — ocupada até T${colony.busyUntilTurn}`;
     }
-    if (colony.autoConsolidate) {
-      return ' â€” auto consolidar';
+    if (colony.autoExplore) {
+      return ' - auto explorar';
     }
     if (!this.canColonyAct(colony)) {
       return ' — já agiu';
@@ -1591,10 +1997,9 @@ export class TurnGameScene {
   }
 
   private getNeighborColonies(colony: Colony): Colony[] {
-    const dirs = [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }];
     const neighbors: Colony[] = [];
-    for (const { dx, dy } of dirs) {
-      const neighbor = this.getColonyAt(colony.x + dx, colony.y + dy);
+    for (const { x, y } of this.getNeighborCoords(colony.x, colony.y)) {
+      const neighbor = this.getColonyAt(x, y);
       if (neighbor) neighbors.push(neighbor);
     }
     return neighbors;
@@ -1709,8 +2114,7 @@ export class TurnGameScene {
   }
 
   private getFloatingMenuAnchor(colony: Colony): { x: number; y: number; side: 'left' | 'right' } {
-    const centerX = this.offsetX + colony.x * this.cellSize + this.cellSize / 2;
-    const centerY = this.offsetY + colony.y * this.cellSize + this.cellSize / 2;
+    const { x: centerX, y: centerY } = this.getCellCenter(colony.x, colony.y);
     const side: 'left' | 'right' = colony.x >= GRID_SIZE / 2 ? 'left' : 'right';
     const horizontalOffset = this.cellSize * 0.72;
 
@@ -1718,7 +2122,7 @@ export class TurnGameScene {
     // Clamp Y so the menu stays within the board area
     const menuHalfHeight = 80;
     const minY = this.offsetY + menuHalfHeight;
-    const maxY = this.offsetY + this.boardSize - menuHalfHeight;
+    const maxY = this.offsetY + this.boardHeight - menuHalfHeight;
     const clampedY = Math.max(minY, Math.min(maxY, centerY));
 
     return { x, y: clampedY, side };
@@ -1726,7 +2130,7 @@ export class TurnGameScene {
 
   private pushLog(message: string): void {
     this.logLines.unshift(message);
-    if (this.logLines.length > 5) this.logLines.pop();
+    if (this.logLines.length > 40) this.logLines.pop();
   }
 
   getDebugState(): Record<string, unknown> {
@@ -1751,6 +2155,3 @@ export class TurnGameScene {
     };
   }
 }
-
-
-

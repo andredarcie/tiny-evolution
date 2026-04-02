@@ -19,7 +19,7 @@ export class Game {
     this.ctx = this.canvas.getContext('2d')!;
 
     const hud = new TurnHUD(container, {
-      onConsolidate: () => this.scene.performConsolidate(),
+      onConsolidate: () => this.scene.performExplore(),
       onAdapt: () => this.scene.performAdapt(),
       onExpand: () => this.scene.startExpandMode(),
       onDecompose: () => this.scene.performDecompose(),
@@ -27,6 +27,7 @@ export class Game {
       onEndTurn: () => this.scene.endTurn(),
       onCancel: () => this.scene.cancelCurrentMode(),
       onCloseTerminalInfo: () => this.scene.dismissTerminalInfo(),
+      onCloseMilestoneInfo: () => this.scene.dismissMilestoneInfo(),
       onRestart: () => this.scene.restart(),
     });
     this.scene = new TurnGameScene(hud);

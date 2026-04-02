@@ -3,7 +3,7 @@
   "env": { "browser": true, "es2023": true },
   "parser": "@typescript-eslint/parser",
   "parserOptions": { "ecmaVersion": 2023, "sourceType": "module" },
-  "plugins": ["@typescript-eslint", "vitest"],
+  "plugins": ["@typescript-eslint"],
   "extends": [
     "eslint:recommended",
     "plugin:@typescript-eslint/recommended"
@@ -16,7 +16,21 @@
   "overrides": [
     {
       "files": ["**/*.test.ts"],
-      "extends": ["plugin:vitest/recommended"]
+      "plugins": ["vitest"],
+      "globals": {
+        "afterEach": "readonly",
+        "beforeEach": "readonly",
+        "describe": "readonly",
+        "expect": "readonly",
+        "it": "readonly",
+        "vi": "readonly"
+      },
+      "rules": {
+        "vitest/no-disabled-tests": "warn",
+        "vitest/no-focused-tests": "error",
+        "vitest/no-identical-title": "error",
+        "vitest/valid-expect": "error"
+      }
     }
   ]
 }

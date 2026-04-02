@@ -8,7 +8,7 @@ function createScene(): TurnGameScene {
     update: () => {},
   };
 
-  return new TurnGameScene(hud as never);
+  return new TurnGameScene(hud as never, { disableEvents: true });
 }
 
 function getSelectedColony(scene: TurnGameScene) {
@@ -88,7 +88,7 @@ describe('TurnGameScene evolution priority', () => {
       population: 1,
     });
 
-    setRandomSeed(1456);
+    setRandomSeed(1462);
 
     expect(getNextEvolutionId(scene, colony)).toBe('esponja');
   });
@@ -157,16 +157,18 @@ describe('TurnGameScene evolution priority', () => {
     const scene = createScene();
     const colony = getSelectedColony(scene);
 
-    colony.lifeFormId = 'peixe';
+    colony.lifeFormId = 'gnatostomado';
     colony.population = 1;
     addColony(scene, 4, 2, {
-      lifeFormId: 'anfibio',
+      lifeFormId: 'peixe',
       population: 1,
     });
     addColony(scene, 5, 2, {
-      lifeFormId: 'reptil',
+      lifeFormId: 'anfibio',
       population: 1,
     });
+
+    setRandomSeed(1456);
 
     expect(getNextEvolutionId(scene, colony)).toBe('tubarao');
   });
@@ -175,16 +177,18 @@ describe('TurnGameScene evolution priority', () => {
     const scene = createScene();
     const colony = getSelectedColony(scene);
 
-    colony.lifeFormId = 'peixe';
+    colony.lifeFormId = 'gnatostomado';
     colony.population = 1;
     addColony(scene, 4, 2, {
-      lifeFormId: 'anfibio',
+      lifeFormId: 'peixe',
       population: 1,
     });
     addColony(scene, 5, 2, {
-      lifeFormId: 'reptil',
+      lifeFormId: 'anfibio',
       population: 1,
     });
+
+    setRandomSeed(1462);
 
     setSelectedColony(scene, colony);
     setTurnReady(scene, colony);
@@ -229,11 +233,14 @@ describe('TurnGameScene evolution priority', () => {
       { biome: 'ocean', expected: 'verme_plano' },
       { biome: 'ocean', expected: 'cordado_ancestral' },
       { biome: 'ocean', expected: 'vertebrado_basal' },
+      { biome: 'ocean', expected: 'gnatostomado' },
       { biome: 'ocean', expected: 'peixe' },
+      { biome: 'coast', expected: 'sarcopterigio' },
       { biome: 'coast', expected: 'anfibio' },
       { biome: 'land', expected: 'reptil' },
       { biome: 'land', expected: 'sinapsideo' },
       { biome: 'land', expected: 'mamifero' },
+      { biome: 'land', expected: 'placentario_basal' },
       { biome: 'land', expected: 'primata_ancestral' },
       { biome: 'land', expected: 'simio_ancestral' },
       { biome: 'land', expected: 'hominino' },
@@ -280,11 +287,14 @@ describe('TurnGameScene evolution priority', () => {
       { biome: 'ocean', expected: 'verme_plano' },
       { biome: 'ocean', expected: 'cordado_ancestral' },
       { biome: 'ocean', expected: 'vertebrado_basal' },
+      { biome: 'ocean', expected: 'gnatostomado' },
       { biome: 'ocean', expected: 'peixe' },
+      { biome: 'coast', expected: 'sarcopterigio' },
       { biome: 'coast', expected: 'anfibio' },
       { biome: 'land', expected: 'reptil' },
       { biome: 'land', expected: 'sinapsideo' },
       { biome: 'land', expected: 'mamifero' },
+      { biome: 'land', expected: 'placentario_basal' },
       { biome: 'land', expected: 'primata_ancestral' },
       { biome: 'land', expected: 'simio_ancestral' },
       { biome: 'land', expected: 'hominino' },
@@ -314,14 +324,15 @@ describe('TurnGameScene evolution priority', () => {
 
   it('applies natural selection to isolated colonies in harsh biomes', () => {
     const scene = createScene();
-    const colony = getSelectedColony(scene);
+    (scene as any).colonies.clear();
 
-    colony.lifeFormId = 'mamifero';
     setBiome(scene, 5, 2, 'land');
-    colony.x = 5;
-    colony.y = 2;
-    colony.population = 2;
-    colony.adaptationPoints = 1;
+    const colony = addColony(scene, 5, 2, {
+      lifeFormId: 'mamifero',
+      population: 2,
+      adaptationPoints: 1,
+      createdTurn: 0,
+    });
     syncColonyTraversal(scene, colony);
 
     const queue = (scene as any).buildNaturalSelectionQueue();
@@ -410,82 +421,76 @@ describe('TurnGameScene evolution priority', () => {
     expect((scene as any).naturalSelectionSummaryLines.some((line: string) => line.includes('+1 biomassa por suporte terminal'))).toBe(true);
   });
 
-  it('gives +2 local biomass on end turn before natural selection when consolidating', () => {
+  it('gives tile energy as biomass to a colony in exploration mode at end of turn', () => {
     const scene = createScene();
-    const colony = getSelectedColony(scene);
+    (scene as any).colonies.clear();
 
-    colony.biomass = 3;
-    setSelectedColony(scene, colony);
-    scene.performConsolidate();
+    setBiome(scene, 3, 3, 'ocean');
+    (scene as any).tileEnergy[3][3] = 2;
+    const colony = addColony(scene, 3, 3, { biomass: 1, createdTurn: 0 });
+    setTurnReady(scene, colony);
 
     scene.endTurn();
     flushNaturalSelection(scene);
 
+    // gains 2 from tile energy (exploration), loses 1 from attrition
+    expect(colony.biomass).toBe(2);
+  });
+
+  it('gives no biomass to a colony that used its action for something other than exploring', () => {
+    const scene = createScene();
+    (scene as any).colonies.clear();
+
+    setBiome(scene, 3, 3, 'ocean');
+    (scene as any).tileEnergy[3][3] = 3;
+    const colony = addColony(scene, 3, 3, { biomass: 5, createdTurn: 0 });
+    setTurnReady(scene, colony);
+
+    // simulate action consumed without exploration
+    (scene as any).actedColonyIds.add(colony.id);
+    colony.autoExplore = false;
+    colony.explorationBiomassPending = false;
+
+    scene.endTurn();
+    flushNaturalSelection(scene);
+
+    // no exploration biomass, only attrition -1
     expect(colony.biomass).toBe(4);
   });
 
-  it('keeps a consolidating colony selectable on the next turn', () => {
+  it('gives no biomass on a tile with 0 energy even in exploration mode', () => {
     const scene = createScene();
-    const colony = getSelectedColony(scene);
+    (scene as any).colonies.clear();
 
-    setSelectedColony(scene, colony);
-    scene.performConsolidate();
+    setBiome(scene, 3, 3, 'ocean');
+    (scene as any).tileEnergy[3][3] = 0;
+    const colony = addColony(scene, 3, 3, { biomass: 3, createdTurn: 0 });
+    setTurnReady(scene, colony);
+
+    scene.endTurn();
+    flushNaturalSelection(scene);
+
+    // 0 energy + attrition -1
+    expect(colony.biomass).toBe(2);
+  });
+
+  it('auto-explores a colony left without orders and keeps it selectable next turn', () => {
+    const scene = createScene();
+    (scene as any).colonies.clear();
+
+    setBiome(scene, 3, 3, 'ocean');
+    (scene as any).tileEnergy[3][3] = 1;
+    const colony = addColony(scene, 3, 3, { biomass: 3, createdTurn: 0 });
+    setTurnReady(scene, colony);
+
     scene.endTurn();
     flushNaturalSelection(scene);
 
     expect((scene as any).turn).toBe(2);
     expect((scene as any).turnStartColonyIds.has(colony.id)).toBe(true);
-    expect((scene as any).isColonyBusy(colony)).toBe(false);
     expect((scene as any).canColonyAct(colony)).toBe(true);
-  });
-
-  it('keeps consolidating automatically on later turns until the player disables it', () => {
-    const scene = createScene();
-    const colony = getSelectedColony(scene);
-
-    colony.biomass = 5;
-    setSelectedColony(scene, colony);
-    scene.performConsolidate();
-
-    scene.endTurn();
-    flushNaturalSelection(scene);
-    expect(colony.biomass).toBe(6);
-
-    scene.endTurn();
-    flushNaturalSelection(scene);
-    expect(colony.biomass).toBe(7);
-    expect(colony.autoConsolidate).toBe(true);
-
-    setSelectedColony(scene, colony);
-    scene.performConsolidate();
-    expect(colony.autoConsolidate).toBe(false);
-
-    scene.endTurn();
-    flushNaturalSelection(scene);
-    expect(colony.biomass).toBe(6);
-  });
-
-  it('replaces auto consolidation when the player gives the colony another action', () => {
-    const scene = createScene();
-    const colony = getSelectedColony(scene);
-
-    colony.population = 3;
-    setSelectedColony(scene, colony);
-    scene.performConsolidate();
-
-    scene.endTurn();
-    flushNaturalSelection(scene);
-    expect(colony.autoConsolidate).toBe(true);
-
-    setSelectedColony(scene, colony);
-    setTurnReady(scene, colony);
-    scene.performAdapt();
-
-    expect(colony.autoConsolidate).toBe(false);
-
-    scene.endTurn();
-    flushNaturalSelection(scene);
-    expect(colony.biomass).toBe(2);
+    // gains 1 from tile energy, loses 1 from attrition — net zero
+    expect(colony.biomass).toBe(3);
   });
 
   it('spends parent biomass and gives the new colony 1 local biomass on expansion', () => {
