@@ -335,15 +335,10 @@ describe('TurnGameScene evolution priority', () => {
     });
     syncColonyTraversal(scene, colony);
 
-    const queue = (scene as any).buildNaturalSelectionQueue();
-    const event = queue.find((item: any) => item.colonyId === colony.id && item.kind === 'exposure');
-
-    expect(event).toBeTruthy();
-
-    (scene as any).applyNaturalSelectionEvent(event);
+    (scene as any).runNaturalSelection();
 
     expect(colony.population).toBe(1);
-    expect((scene as any).logLines.some((line: string) => line.includes('Selecao Natural'))).toBe(true);
+    expect((scene as any).logLines.some((line: string) => line.includes('exposição'))).toBe(true);
   });
 
   it('applies natural selection to colonies parked in the wrong biome', () => {
@@ -364,17 +359,11 @@ describe('TurnGameScene evolution priority', () => {
       adaptationPoints: 1,
     });
 
-    const queue = (scene as any).buildNaturalSelectionQueue();
-    const event = queue.find((item: any) => item.colonyId === colony.id && item.kind === 'stagnation');
-
-    expect(event).toBeTruthy();
-
-    (scene as any).applyNaturalSelectionEvent(event);
+    (scene as any).runNaturalSelection();
 
     expect(colony.adaptationPoints).toBe(1);
     const neighbor = getColonyAt(scene, 4, 2);
     expect(neighbor.adaptationPoints).toBe(1);
-    expect(event.detail.includes('bioma errado')).toBe(true);
   });
 
   it('does not apply biomass attrition to terminal colonies', () => {
@@ -386,9 +375,10 @@ describe('TurnGameScene evolution priority', () => {
     colony.createdTurn = 0;
     syncColonyTraversal(scene, colony);
 
-    const queue = (scene as any).buildNaturalSelectionQueue();
+    (scene as any).runNaturalSelection();
 
-    expect(queue.some((item: any) => item.colonyId === colony.id && item.kind === 'attrition')).toBe(false);
+    expect(colony.biomass).toBe(3);
+    expect((scene as any).floatingDeltas.some((delta: any) => delta.colonyId === colony.id && delta.text === '+1')).toBe(false);
   });
 
   it('grants biomass to colonies adjacent to a terminal colony during natural selection', () => {
@@ -409,16 +399,10 @@ describe('TurnGameScene evolution priority', () => {
     syncColonyTraversal(scene, terminal);
     syncColonyTraversal(scene, supported);
 
-    const queue = (scene as any).buildNaturalSelectionQueue();
-    const event = queue.find((item: any) => item.colonyId === supported.id && item.kind === 'support');
-
-    expect(event).toBeTruthy();
-
-    (scene as any).applyNaturalSelectionEvent(event);
+    (scene as any).runNaturalSelection();
 
     expect(supported.biomass).toBe(3);
     expect((scene as any).floatingDeltas.some((delta: any) => delta.colonyId === supported.id && delta.text === '+1')).toBe(true);
-    expect((scene as any).naturalSelectionSummaryLines.some((line: string) => line.includes('+1 biomassa por suporte terminal'))).toBe(true);
   });
 
   it('gives tile energy as biomass to a colony in exploration mode at end of turn', () => {
@@ -435,6 +419,7 @@ describe('TurnGameScene evolution priority', () => {
 
     // gains 2 from tile energy (exploration), loses 1 from attrition
     expect(colony.biomass).toBe(2);
+    expect((scene as any).floatingDeltas.some((delta: any) => delta.colonyId === colony.id && delta.text === '+1')).toBe(true);
   });
 
   it('gives no biomass to a colony that used its action for something other than exploring', () => {
@@ -491,6 +476,23 @@ describe('TurnGameScene evolution priority', () => {
     expect((scene as any).canColonyAct(colony)).toBe(true);
     // gains 1 from tile energy, loses 1 from attrition — net zero
     expect(colony.biomass).toBe(3);
+    expect((scene as any).floatingDeltas.some((delta: any) => delta.colonyId === colony.id && delta.text === '+1')).toBe(false);
+  });
+
+  it('keeps the selected colony selected after the tick advances when it survives', () => {
+    const scene = createScene();
+    (scene as any).colonies.clear();
+
+    setBiome(scene, 3, 3, 'ocean');
+    (scene as any).tileEnergy[3][3] = 1;
+    const colony = addColony(scene, 3, 3, { biomass: 3, createdTurn: 0 });
+    setSelectedColony(scene, colony);
+    setTurnReady(scene, colony);
+
+    scene.endTurn();
+    flushNaturalSelection(scene);
+
+    expect(getSelectedColony(scene)).toBe(colony);
   });
 
   it('spends parent biomass and gives the new colony 1 local biomass on expansion', () => {
@@ -513,6 +515,25 @@ describe('TurnGameScene evolution priority', () => {
     expect(expanded.autoConsolidate).toBe(true);
     expect(expanded.gestatingUntilTurn).toBeNull();
     expect(expanded.busyUntilTurn).toBe(0);
+  });
+
+  it('does not cancel expansion mode when the automatic tick was about to advance', () => {
+    const scene = createScene();
+    (scene as any).colonies.clear();
+
+    setBiome(scene, 1, 1, 'ocean');
+    setBiome(scene, 2, 1, 'ocean');
+    const colony = addColony(scene, 1, 1, { biomass: 3, createdTurn: 0 });
+
+    setSelectedColony(scene, colony);
+    setTurnReady(scene, colony);
+    (scene as any).tickTimer = 179;
+    scene.startExpandMode();
+    scene.update();
+
+    expect((scene as any).mode).toBe('expand');
+    expect(getSelectedColony(scene)).toBe(colony);
+    expect((scene as any).turn).toBe(1);
   });
 
   it('makes an expanded colony ready on the next turn without extra waiting', () => {
@@ -581,21 +602,19 @@ describe('TurnGameScene evolution priority', () => {
 
     expect(colony.biomass).toBe(2);
     expect(expanded.biomass).toBe(1);
-    expect((scene as any).naturalSelectionSummaryLines.some((line: string) => line.includes('-1 biomassa local'))).toBe(true);
   });
 
-  it('extinguishes a colony when local biomass reaches zero and reports it in the summary', () => {
+  it('extinguishes a colony when local biomass reaches zero', () => {
     const scene = createScene();
     const colony = getSelectedColony(scene);
     const startX = colony.x;
     const startY = colony.y;
 
     colony.biomass = 1;
-    const event = (scene as any).buildNaturalSelectionQueue().find((item: any) => item.colonyId === colony.id && item.kind === 'attrition');
-    (scene as any).applyNaturalSelectionEvent(event);
+    colony.createdTurn = 0;
+    (scene as any).runNaturalSelection();
 
     expect(getColonyAt(scene, startX, startY)).toBeNull();
-    expect((scene as any).naturalSelectionSummaryLines.some((line: string) => line.includes('extinta'))).toBe(true);
     expect((scene as any).extinctionBursts.length).toBeGreaterThan(0);
   });
 
@@ -615,36 +634,31 @@ describe('TurnGameScene evolution priority', () => {
       busyUntilTurn: 99,
     });
 
-    const event = (scene as any).buildNaturalSelectionQueue().find((item: any) => item.colonyId === parent.id && item.kind === 'attrition');
-    (scene as any).applyNaturalSelectionEvent(event);
-    (scene as any).finishNaturalSelection();
+    (scene as any).runNaturalSelection();
 
     expect(getColonyAt(scene, parent.x, parent.y)).toBeNull();
     expect(getColonyAt(scene, child.x, child.y)).toBeNull();
     expect((scene as any).gameOver).toBe(true);
     expect((scene as any).gameOverTitle).toContain('Fim da vida');
     expect((scene as any).gameOverQuote.length).toBeGreaterThan(0);
-    expect((scene as any).naturalSelectionSummaryLines.some((line: string) => line.includes('expansao abortada'))).toBe(true);
   });
 
   it('triggers game over when the last branch that can reach Homo sapiens is lost at end of turn', () => {
     const scene = createScene();
     (scene as any).colonies.clear();
 
-    const ancestral = addColony(scene, 0, 0, {
+    addColony(scene, 0, 0, {
       lifeFormId: 'mamifero',
       biomass: 1,
       createdTurn: 0,
     });
-    addColony(scene, 1, 0, {
+    addColony(scene, 10, 10, {
       lifeFormId: 'tubarao',
       biomass: 2,
       createdTurn: 0,
     });
 
-    const event = (scene as any).buildNaturalSelectionQueue().find((item: any) => item.colonyId === ancestral.id && item.kind === 'attrition');
-    (scene as any).applyNaturalSelectionEvent(event);
-    (scene as any).finishNaturalSelection();
+    scene.endTurn();
 
     expect((scene as any).gameOver).toBe(true);
     expect((scene as any).gameOverTitle).toContain('linhagem humana');

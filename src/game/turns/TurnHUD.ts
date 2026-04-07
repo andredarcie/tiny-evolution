@@ -33,19 +33,7 @@ interface EncyclopediaTopic {
   }>;
 }
 
-const ACTION_HELP_CONTENT: Record<'explore' | 'adapt' | 'expand', ActionHelpContent> = {
-  explore: {
-    title: 'Explorar',
-    kicker: 'ação de sobrevivência',
-    summary: 'A colônia dedica o turno a aproveitar melhor o próprio tile e entra em exploração automática até você desligar.',
-    rules: [
-      'Consome a ação da colônia no turno atual.',
-      'Marca a colônia para exploração automática; ao usar de novo, você desliga esse comportamento.',
-      'No fim do turno, a exploração rende nutrientes do tile e +1 de população para a colônia.',
-      'É a forma mais direta de transformar energia local em crescimento estável.',
-    ],
-    biology: 'Na biologia, explorar um nicho significa usar melhor os recursos já disponíveis no ambiente. Microrganismos, algas e animais simples prosperam quando conseguem captar energia e nutrientes com eficiência maior do que os competidores ao redor.',
-  },
+const ACTION_HELP_CONTENT: Record<'adapt' | 'expand', ActionHelpContent> = {
   adapt: {
     title: 'Adaptar',
     kicker: 'salto evolutivo',
@@ -295,8 +283,6 @@ const ENCYCLOPEDIA_TOPICS: EncyclopediaTopic[] = [
 ];
 
 export interface TurnHUDState {
-  turn: number;
-  phaseLabel: string;
   actionPoints: number;
   biomass: number;
   adaptation: number;
@@ -308,15 +294,11 @@ export interface TurnHUDState {
   modeLabel: string;
   progress: number;
   logLines: string[];
-  canConsolidate: boolean;
-  consolidateActive: boolean;
   canAdapt: boolean;
   adaptBlockedReason: string;
   canExpand: boolean;
   canDecompose: boolean;
   canSeed: boolean;
-  canEndTurn: boolean;
-  endTurnLabel: string;
   showCancel: boolean;
   floatingMenuVisible: boolean;
   floatingMenuX: number;
@@ -345,12 +327,10 @@ export interface TurnHUDState {
 }
 
 export type HUDActionHandlers = {
-  onConsolidate: () => void;
   onAdapt: () => void;
   onExpand: () => void;
   onDecompose: () => void;
   onSeed: () => void;
-  onEndTurn: () => void;
   onCancel: () => void;
   onCloseTerminalInfo: () => void;
   onCloseMilestoneInfo: () => void;
@@ -359,18 +339,15 @@ export type HUDActionHandlers = {
 
 export class TurnHUD {
   private root: HTMLElement;
-  private turnEl: HTMLElement;
   private biomassEl: HTMLElement;
   private adaptationEl: HTMLElement;
   private hintEl: HTMLElement;
   private logEl: HTMLElement;
-  private endTurnBtn: HTMLButtonElement;
   private seedBtn: HTMLButtonElement;
   private treeBtn: HTMLButtonElement;
   private encyclopediaBtn: HTMLButtonElement;
   private floatingMenuEl: HTMLElement;
   private floatingCancelEl: HTMLElement;
-  private floatingConsolidateBtn: HTMLButtonElement;
   private floatingAdaptBtn: HTMLButtonElement;
   private floatingAdaptReasonEl: HTMLElement;
   private floatingExpandBtn: HTMLButtonElement;
@@ -426,14 +403,6 @@ export class TurnHUD {
         <div class="floating-menu-title" id="floating-menu-title">
           <span id="floating-menu-title-text"></span>
           <button class="floating-info-btn" id="floating-info-btn" aria-label="Curiosidades científicas">ⓘ</button>
-        </div>
-        <div class="floating-action-row">
-          <button id="floating-consolidate">
-            <span class="action-icon icon-consolidate" aria-hidden="true"></span>
-            <span>Explorar</span>
-            <kbd class="action-kbd">X</kbd>
-          </button>
-          <button class="floating-inline-info-btn" id="floating-consolidate-info" aria-label="Saiba mais sobre explorar">ⓘ</button>
         </div>
         <div class="floating-action-row">
           <button id="floating-adapt">
@@ -620,10 +589,6 @@ export class TurnHUD {
 
       <div class="hud-panel">
         <div class="hud-stats">
-          <div class="hud-stat hud-stat-turn">
-            <span class="hud-stat-label">Turno</span>
-            <span class="hud-stat-value" id="hud-turn"></span>
-          </div>
           <div class="hud-stat">
             <span class="hud-stat-label">Biomassa</span>
             <span class="hud-stat-value" id="hud-biomass"></span>
@@ -639,7 +604,6 @@ export class TurnHUD {
             <button id="hud-encyclopedia" class="hud-encyclopedia" title="Enciclopédia do jogo" aria-label="Enciclopédia do jogo">📚</button>
             <button id="hud-tree" class="hud-tree" title="Árvore evolutiva completa" aria-label="Árvore evolutiva completa">🌳</button>
             <button id="hud-seed" class="hud-seed" title="Semear vida" aria-label="Semear vida">🌱</button>
-            <button id="hud-end-turn" class="hud-end-turn" title="Encerrar turno" aria-label="Encerrar turno">↵</button>
           </div>
         </div>
 
@@ -656,7 +620,6 @@ export class TurnHUD {
     `;
     container.appendChild(this.root);
 
-    this.turnEl = this.root.querySelector('#hud-turn')!;
     this.biomassEl = this.root.querySelector('#hud-biomass')!;
     this.adaptationEl = this.root.querySelector('#hud-adaptation')!;
     this.hintEl = this.root.querySelector('#hud-hint')!;
@@ -668,13 +631,11 @@ export class TurnHUD {
     this.gameOverQuoteEl = this.root.querySelector('#game-over-quote')!;
     this.gameOverDetailEl = this.root.querySelector('#game-over-detail')!;
     this.logEl = this.root.querySelector('#hud-log')!;
-    this.endTurnBtn = this.root.querySelector('#hud-end-turn')!;
     this.seedBtn = this.root.querySelector('#hud-seed')!;
     this.treeBtn = this.root.querySelector('#hud-tree')!;
     this.encyclopediaBtn = this.root.querySelector('#hud-encyclopedia')!;
     this.floatingMenuEl = this.root.querySelector('#floating-action-menu')!;
     this.floatingCancelEl = this.root.querySelector('#floating-cancel-menu')!;
-    this.floatingConsolidateBtn = this.root.querySelector('#floating-consolidate')!;
     this.floatingAdaptBtn = this.root.querySelector('#floating-adapt')!;
     this.floatingAdaptReasonEl = this.root.querySelector('#floating-adapt-reason')!;
     this.floatingExpandBtn = this.root.querySelector('#floating-expand')!;
@@ -707,7 +668,6 @@ export class TurnHUD {
     this.encyclopediaSummaryEl = this.root.querySelector('#encyclopedia-topic-summary')!;
     this.encyclopediaSectionsEl = this.root.querySelector('#encyclopedia-sections')!;
     const floatingInfoBtn = this.root.querySelector('#floating-info-btn')!;
-    const floatingConsolidateInfoBtn = this.root.querySelector('#floating-consolidate-info')!;
     const floatingAdaptInfoBtn = this.root.querySelector('#floating-adapt-info')!;
     const floatingExpandInfoBtn = this.root.querySelector('#floating-expand-info')!;
     const colonyInfoClose = this.root.querySelector('#colony-info-close')!;
@@ -725,12 +685,10 @@ export class TurnHUD {
     this.renderEncyclopediaNav();
     this.renderEncyclopediaTopic(this.activeEncyclopediaTopicId);
 
-    this.endTurnBtn.addEventListener('click', handlers.onEndTurn);
     this.seedBtn.addEventListener('click', handlers.onSeed);
     this.encyclopediaBtn.addEventListener('click', () => this.encyclopediaModalEl.classList.remove('hidden'));
     this.treeBtn.addEventListener('click', () => this.treeModalEl.classList.remove('hidden'));
     this.floatingCancelBtn.addEventListener('click', handlers.onCancel);
-    this.floatingConsolidateBtn.addEventListener('click', handlers.onConsolidate);
     this.floatingAdaptBtn.addEventListener('click', handlers.onAdapt);
     this.floatingExpandBtn.addEventListener('click', handlers.onExpand);
     this.floatingDecomposeBtn.addEventListener('click', handlers.onDecompose);
@@ -739,7 +697,6 @@ export class TurnHUD {
     floatingInfoBtn.addEventListener('click', () => {
       if (this.currentColonyDef) this.openColonyInfo(this.currentColonyDef);
     });
-    floatingConsolidateInfoBtn.addEventListener('click', () => this.openActionHelp('explore'));
     floatingAdaptInfoBtn.addEventListener('click', () => this.openActionHelp('adapt'));
     floatingExpandInfoBtn.addEventListener('click', () => this.openActionHelp('expand'));
     colonyInfoClose.addEventListener('click', () => this.colonyInfoModalEl.classList.add('hidden'));
@@ -757,8 +714,6 @@ export class TurnHUD {
   }
 
   update(state: TurnHUDState): void {
-    this.turnEl.textContent = String(state.turn);
-    this.turnEl.title = state.phaseLabel || '';
     this.phaseBannerTitleEl.textContent = state.phaseBannerTitle;
     this.phaseBannerDetailEl.textContent = state.phaseBannerDetail;
     this.phaseBannerEl.classList.toggle('hidden', !state.phaseBannerTitle);
@@ -785,14 +740,8 @@ export class TurnHUD {
     this.hintEl.textContent = state.hint;
     this.logEl.innerHTML = state.logLines.map((line) => `<div class="hud-log-line">${line}</div>`).join('');
 
-    this.endTurnBtn.disabled = !state.canEndTurn;
-    this.endTurnBtn.title = state.endTurnLabel;
-    this.endTurnBtn.setAttribute('aria-label', state.endTurnLabel);
     this.seedBtn.disabled = !state.canSeed;
     this.seedBtn.style.display = state.canSeed ? '' : 'none';
-    this.floatingConsolidateBtn.disabled = !state.canConsolidate;
-    this.floatingConsolidateBtn.classList.toggle('is-active', state.consolidateActive);
-    this.floatingConsolidateBtn.setAttribute('aria-pressed', state.consolidateActive ? 'true' : 'false');
     this.floatingAdaptBtn.disabled = !state.canAdapt;
     this.floatingAdaptReasonEl.textContent = state.adaptBlockedReason;
     this.floatingAdaptReasonEl.classList.toggle('hidden', state.canAdapt || !state.adaptBlockedReason);
@@ -871,7 +820,7 @@ export class TurnHUD {
     this.colonyInfoModalEl.classList.remove('hidden');
   }
 
-  private openActionHelp(action: 'explore' | 'adapt' | 'expand'): void {
+  private openActionHelp(action: 'adapt' | 'expand'): void {
     const content = ACTION_HELP_CONTENT[action];
     this.actionHelpTitleEl.textContent = content.title;
     this.actionHelpKickerEl.textContent = content.kicker;

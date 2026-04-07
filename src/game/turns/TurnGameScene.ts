@@ -12,13 +12,6 @@ import {
 import { rollTurnEvent, type TurnEvent } from './TurnEventSystem';
 
 type ActionMode = 'idle' | 'expand' | 'seed';
-type TurnPhase = 'player' | 'natural-selection';
-
-interface NaturalSelectionEvent {
-  colonyId: number;
-  kind: 'support' | 'exposure' | 'stagnation' | 'attrition';
-  detail: string;
-}
 
 interface LifeMilestone {
   id: string;
@@ -53,8 +46,9 @@ interface Colony {
 const GRID_SIZE = 8;
 const SEED_COST = 4;
 const HUMAN_PATH_PRIORITY_CHANCE = 0.8;
+const TICK_INTERVAL = 180;
 const MIN_PARALLEL_HUMAN_PATHS_FOR_BRANCHING = 2;
-const NATURAL_SELECTION_EVENT_DELAY_FRAMES = 60;
+
 const HEX_SQRT3 = Math.sqrt(3);
 const WORLD_COLORS = {
   background: '#e9e1d2',
@@ -72,7 +66,6 @@ const WORLD_COLORS = {
   adaptationReady: '#72b36a',
   adaptationSpent: '#c98b2e',
   fortifyStroke: '#f7f1e8',
-  consolidateStroke: '#f3d36b',
   text: '#2e241b',
   extinctionStroke: 'rgba(184, 90, 70, 0.95)',
   biomassGain: '#72b36a',
@@ -420,19 +413,12 @@ export class TurnGameScene {
   private hoverCell: { x: number; y: number } | null = null;
   private nextColonyId = 1;
   private turn = 1;
-  private phase: TurnPhase = 'player';
   private currentEvent: TurnEvent | null = null;
   private eventLogMessage = '';
   private actionPoints = 0;
   private stageIndex = 0;
   private gameWon = false;
   private gameOver = false;
-  private naturalSelectionQueue: NaturalSelectionEvent[] = [];
-  private naturalSelectionDelay = 0;
-  private naturalSelectionResolvedCount = 0;
-  private naturalSelectionBanner = '';
-  private naturalSelectionDetail = '';
-  private naturalSelectionSummaryLines: string[] = [];
   private terminalInfoVisible = false;
   private terminalInfoTitle = '';
   private terminalInfoLead = '';
@@ -447,6 +433,7 @@ export class TurnGameScene {
   private readonly shownMilestoneIds = new Set<string>();
   private readonly pendingMilestoneIds: string[] = [];
   private readonly floatingDeltas: FloatingDelta[] = [];
+  private biomassDeltaBatch: Map<number, number> | null = null;
   private readonly extinctionBursts: ExtinctionBurst[] = [];
   private gameOverTitle = '';
   private gameOverQuote = '';
@@ -463,6 +450,7 @@ export class TurnGameScene {
   private boardHeight = 0;
   private isDesktop = false;
   private eventsEnabled = true;
+  private tickTimer = 0;
 
   constructor(hud: TurnHUD, options?: { disableEvents?: boolean }) {
     this.hud = hud;
@@ -492,19 +480,12 @@ export class TurnGameScene {
     this.hoverCell = null;
     this.nextColonyId = 1;
     this.turn = 1;
-    this.phase = 'player';
     this.currentEvent = null;
     this.eventLogMessage = '';
     this.actionPoints = 0;
     this.stageIndex = 0;
     this.gameWon = false;
     this.gameOver = false;
-    this.naturalSelectionQueue = [];
-    this.naturalSelectionDelay = 0;
-    this.naturalSelectionResolvedCount = 0;
-    this.naturalSelectionBanner = '';
-    this.naturalSelectionDetail = '';
-    this.naturalSelectionSummaryLines = [];
     this.terminalInfoVisible = false;
     this.terminalInfoTitle = '';
     this.terminalInfoLead = '';
@@ -519,11 +500,13 @@ export class TurnGameScene {
     this.shownMilestoneIds.clear();
     this.pendingMilestoneIds.length = 0;
     this.floatingDeltas.length = 0;
+    this.biomassDeltaBatch = null;
     this.extinctionBursts.length = 0;
     this.gameOverTitle = '';
     this.gameOverQuote = '';
     this.gameOverQuoteAuthor = '';
     this.gameOverDetail = '';
+    this.tickTimer = 0;
     const { terrain, tileEnergy } = generateRandomTerrain();
     this.terrain = terrain;
     this.tileEnergy = tileEnergy;
@@ -546,17 +529,11 @@ export class TurnGameScene {
       if (overlay?.querySelector('.tree-modal:not(.hidden), .colony-info-modal:not(.hidden)')) return;
 
       switch (e.key.toLowerCase()) {
-        case 'x':
-          if (this.selectedColonyId !== null && this.mode === 'idle') this.performExplore();
-          break;
         case 'a':
           if (this.selectedColonyId !== null && this.mode === 'idle') this.performAdapt();
           break;
         case 'e':
           if (this.selectedColonyId !== null && this.mode === 'idle') this.startExpandMode();
-          break;
-        case 'enter':
-          if (this.mode === 'idle') this.endTurn();
           break;
         case 'escape':
           if (this.mode !== 'idle') this.cancelCurrentMode();
@@ -603,8 +580,12 @@ export class TurnGameScene {
   }
 
   update(): void {
-    if (this.phase === 'natural-selection') {
-      this.updateNaturalSelection();
+    if (!this.gameOver && !this.gameWon && this.mode === 'idle') {
+      this.tickTimer += 1;
+      if (this.tickTimer >= TICK_INTERVAL) {
+        this.tickTimer = 0;
+        this.endTurn();
+      }
     }
     this.updateFloatingDeltas();
     this.updateHUD();
@@ -620,7 +601,7 @@ export class TurnGameScene {
 
   handlePointerDown(clientX: number, clientY: number): void {
     if (this.milestoneInfoVisible || this.terminalInfoVisible) return;
-    if (this.phase !== 'player' || this.gameOver) return;
+    if (this.gameOver) return;
 
     const cell = this.getCellAtPoint(clientX, clientY);
     if (!cell) {
@@ -661,31 +642,8 @@ export class TurnGameScene {
     this.updateHUD();
   }
 
-  performExplore(): void {
-    if (this.phase !== 'player' || this.gameOver) return;
-    const colony = this.getSelectedColony();
-    if (!colony || !this.isColonyEstablished(colony)) return;
-    if (colony.autoExplore) {
-      colony.autoExplore = false;
-      colony.autoConsolidate = false;
-      this.mode = 'idle';
-      this.pushLog(`A colonia em ${this.formatCellLabel(colony.x, colony.y)} deixou de explorar automaticamente.`);
-      this.updateHUD();
-      return;
-    }
-    if (!this.canColonyAct(colony)) return;
-    colony.autoExplore = true;
-    colony.autoConsolidate = true;
-    colony.explorationBiomassPending = true;
-    this.consumeColonyAction(colony.id);
-    this.mode = 'idle';
-    this.selectNextAvailableColony(colony.id);
-    this.pushLog(`A colônia em ${this.formatCellLabel(colony.x, colony.y)} começou a explorar o tile.`);
-    this.updateHUD();
-  }
-
   performAdapt(): void {
-    if (this.phase !== 'player' || this.gameOver) return;
+    if (this.gameOver) return;
     const colony = this.getSelectedColony();
     if (!colony || !this.canColonyAct(colony) || colony.adaptationPoints <= 0) return;
 
@@ -723,9 +681,6 @@ export class TurnGameScene {
     }
 
     this.mode = 'idle';
-    if (!this.gameWon) {
-      this.selectNextAvailableColony(colony.id);
-    }
     if (!this.gameWon && this.isTerminalColony(colony)) {
       this.showTerminalInfo(colony);
     }
@@ -736,7 +691,7 @@ export class TurnGameScene {
   }
 
   performDecompose(): void {
-    if (this.phase !== 'player' || this.gameOver) return;
+    if (this.gameOver) return;
     const colony = this.getSelectedColony();
     if (!colony || !this.isTerminalColony(colony) || !this.isColonyEstablished(colony)) return;
 
@@ -755,7 +710,6 @@ export class TurnGameScene {
     const cell = this.formatCellLabel(colony.x, colony.y);
     this.colonies.delete(colony.id);
     this.selectedColonyId = null;
-    this.selectNextAvailableColony(null);
     this.pushLog(`${name} em ${cell} foi decomposta${neighbors.length > 0 ? ': adaptacao redistribuida.' : '.'}`);
     this.mode = 'idle';
     this.updateHUD();
@@ -775,17 +729,19 @@ export class TurnGameScene {
   }
 
   startExpandMode(): void {
-    if (this.phase !== 'player' || this.gameOver) return;
+    if (this.gameOver) return;
     const colony = this.getSelectedColony();
     if (!colony || !this.canColonyAct(colony) || colony.biomass <= 0) return;
+    this.tickTimer = 0;
     this.mode = 'expand';
     this.pushLog('Modo expandir ativo. Clique em um tile vizinho válido.');
     this.updateHUD();
   }
 
   startSeedMode(): void {
-    if (this.phase !== 'player' || this.gameOver) return;
+    if (this.gameOver) return;
     if (this.gameWon || this.getBiomassPool() < SEED_COST) return;
+    this.tickTimer = 0;
     this.mode = 'seed';
     this.selectedColonyId = null;
     this.pushLog(`Semear vida (custo: ${SEED_COST} biomassa). Clique em um tile de oceano livre.`);
@@ -815,19 +771,20 @@ export class TurnGameScene {
     }
 
     this.spendBiomassPool(SEED_COST);
-    this.addColony(x, y, {
+    const seeded = this.addColony(x, y, {
       population: 2,
       lifeFormId: 'bacteria_primitiva',
       autoExplore: true,
       autoConsolidate: true,
     });
+    this.consumeColonyAction(seeded.id);
     this.mode = 'idle';
     this.pushLog(`Nova vida semeada em ${this.formatCellLabel(x, y)}. Uma nova Bactéria Primitiva surgiu no oceano.`);
     this.updateHUD();
   }
 
   cancelCurrentMode(): void {
-    if (this.phase !== 'player' || this.gameOver) return;
+    if (this.gameOver) return;
     if (this.mode === 'idle') return;
     const label = this.mode === 'seed' ? 'Semeadura cancelada.' : 'Modo expandir cancelado.';
     this.mode = 'idle';
@@ -836,22 +793,37 @@ export class TurnGameScene {
   }
 
   endTurn(): void {
-    if (this.gameWon || this.gameOver || this.phase !== 'player') return;
-    const previousSelectedColonyId = this.selectedColonyId;
+    if (this.gameWon || this.gameOver) return;
+    this.tickTimer = 0;
     this.mode = 'idle';
-    this.currentEvent = null; // Limpa o evento do turno
+    this.currentEvent = null;
     this.eventLogMessage = '';
+    this.beginBiomassDeltaBatch();
     this.resolveImplicitExplorationOrders();
     this.resolveAutoExplorationOrders();
     this.resolveImmediateExplorationRewards();
     this.resolveProduction();
     this.checkProgression();
     if (this.gameWon) {
+      this.flushBiomassDeltaBatch();
       this.updateHUD();
       return;
     }
-    this.beginNaturalSelection(previousSelectedColonyId);
-    this.pushLog(`Turno ${this.turn} começou.`);
+    this.runNaturalSelection();
+    if (this.gameOver) {
+      this.flushBiomassDeltaBatch();
+      this.updateHUD();
+      return;
+    }
+    if (!this.hasHumanReachableLineage()) {
+      this.triggerHumanPathLostGameOver();
+      this.flushBiomassDeltaBatch();
+      this.updateHUD();
+      return;
+    }
+    this.turn += 1;
+    this.startTurn();
+    this.flushBiomassDeltaBatch();
     this.updateHUD();
   }
 
@@ -902,18 +874,12 @@ export class TurnGameScene {
     return colony;
   }
 
-  private startTurn(fromColonyId: number | null = null): void {
-    this.phase = 'player';
-    this.naturalSelectionQueue = [];
-    this.naturalSelectionDelay = 0;
-    this.naturalSelectionResolvedCount = 0;
-    this.naturalSelectionBanner = '';
-    this.naturalSelectionDetail = '';
-    
-    // Rola evento do turno se habilitado
+  private startTurn(): void {
+    const biomassBeforeEvent = this.getColonyBiomassSnapshot();
     this.currentEvent = this.eventsEnabled ? rollTurnEvent(this.getHighestWorldStage()) : null;
     if (this.currentEvent) {
       this.eventLogMessage = this.currentEvent.apply?.(this) || '';
+      this.recordBiomassChangesSince(biomassBeforeEvent);
       this.pushLog(`${this.currentEvent.emoji} Evento: ${this.currentEvent.name}. ${this.eventLogMessage}`);
     } else {
       this.eventLogMessage = '';
@@ -927,7 +893,6 @@ export class TurnGameScene {
         .map((colony) => colony.id),
     );
     this.actionPoints = this.turnStartColonyIds.size;
-    this.selectNextAvailableColony(fromColonyId);
   }
 
   private resolveTurnTransitions(): void {
@@ -940,23 +905,24 @@ export class TurnGameScene {
     }
   }
 
+  private applyExplorationReward(colony: Colony): void {
+    colony.explorationBiomassPending = false;
+    colony.exploringUntilTurn = null;
+    const energy = this.tileEnergy[colony.y][colony.x];
+    const def = EVOLUTION_BY_ID.get(colony.lifeFormId);
+    const multiplier = def ? GROUP_ENERGY_MULTIPLIER[def.group] : 1;
+    const gained = energy * multiplier;
+    colony.biomass += gained;
+    this.recordBiomassDelta(colony.id, gained);
+    colony.population += 1;
+    colony.fortified = true;
+    this.pushLog(`Exploração em ${this.formatCellLabel(colony.x, colony.y)}: +${formatBiomass(gained)} nutrientes e +1 população.`);
+  }
+
   private resolveImmediateExplorationRewards(): void {
     for (const colony of this.colonies.values()) {
       if (!colony.explorationBiomassPending) continue;
-      colony.explorationBiomassPending = false;
-      colony.exploringUntilTurn = null;
-      
-      const energy = this.tileEnergy[colony.y][colony.x];
-      const def = EVOLUTION_BY_ID.get(colony.lifeFormId);
-      const multiplier = def ? GROUP_ENERGY_MULTIPLIER[def.group] : 1;
-      const gained = energy * multiplier;
-      colony.biomass += gained;
-      colony.population += 1;
-      colony.fortified = true;
-      this.pushLog(`Exploração em ${this.formatCellLabel(colony.x, colony.y)}: +${formatBiomass(gained)} nutrientes e +1 população.`);
-      if (gained > 0) {
-        this.spawnFloatingDelta(colony.id, `+${formatBiomass(gained)}`, WORLD_COLORS.biomassGain);
-      }
+      this.applyExplorationReward(colony);
     }
   }
 
@@ -1186,27 +1152,57 @@ export class TurnGameScene {
   }
 
   private spawnFloatingDelta(colonyId: number, text: string, color: string): void {
-    // Procura um delta existente para esta colônia que ainda esteja no início (fresco)
-    // Isso evita que múltiplos ganhos no mesmo turno (ex: Consolidação + Tile) se sobreponham
-    const existing = this.floatingDeltas.find(d => d.colonyId === colonyId && d.framesLeft > 60);
-    
-    if (existing) {
-      const existingVal = parseInt(existing.text) || 0;
-      const newVal = parseInt(text) || 0;
-      const total = existingVal + newVal;
-      
-      existing.text = (total >= 0 ? "+" : "") + total;
-      existing.color = total >= 0 ? WORLD_COLORS.biomassGain : WORLD_COLORS.biomassLoss;
-      existing.framesLeft = 90; // Reseta o tempo para o usuário ver o novo total
-      return;
-    }
-
     this.floatingDeltas.push({
       colonyId,
       text,
       color,
-      framesLeft: 90,
+      framesLeft: 75,
     });
+  }
+
+  private beginBiomassDeltaBatch(): void {
+    this.biomassDeltaBatch = new Map();
+  }
+
+  private recordBiomassDelta(colonyId: number, amount: number): void {
+    if (amount === 0) return;
+    if (!this.biomassDeltaBatch) {
+      this.spawnFloatingDelta(
+        colonyId,
+        `${amount > 0 ? '+' : ''}${formatBiomass(amount)}`,
+        amount > 0 ? WORLD_COLORS.biomassGain : WORLD_COLORS.biomassLoss,
+      );
+      return;
+    }
+
+    this.biomassDeltaBatch.set(colonyId, (this.biomassDeltaBatch.get(colonyId) ?? 0) + amount);
+  }
+
+  private flushBiomassDeltaBatch(): void {
+    const batch = this.biomassDeltaBatch;
+    this.biomassDeltaBatch = null;
+    if (!batch) return;
+
+    for (const [colonyId, amount] of batch) {
+      if (amount === 0 || !this.colonies.has(colonyId)) continue;
+      this.spawnFloatingDelta(
+        colonyId,
+        `${amount > 0 ? '+' : ''}${formatBiomass(amount)}`,
+        amount > 0 ? WORLD_COLORS.biomassGain : WORLD_COLORS.biomassLoss,
+      );
+    }
+  }
+
+  private getColonyBiomassSnapshot(): Map<number, number> {
+    return new Map([...this.colonies.values()].map((colony) => [colony.id, colony.biomass]));
+  }
+
+  private recordBiomassChangesSince(snapshot: Map<number, number>): void {
+    for (const colony of this.colonies.values()) {
+      const before = snapshot.get(colony.id);
+      if (before === undefined) continue;
+      this.recordBiomassDelta(colony.id, colony.biomass - before);
+    }
   }
 
   private drawFloatingDeltas(ctx: CanvasRenderingContext2D): void {
@@ -1222,10 +1218,10 @@ export class TurnGameScene {
         if (!colony) continue;
 
         const { x: centerX, y: centerYBase } = this.getCellCenter(colony.x, colony.y);
-        const progress = 1 - delta.framesLeft / 90;
-        const centerY = centerYBase + this.cellSize * (0.05 - progress * 0.45);
-        
-        ctx.globalAlpha = Math.max(0, Math.min(1, delta.framesLeft / 30));
+        const progress = 1 - delta.framesLeft / 75;
+        const centerY = centerYBase + this.cellSize * (0.05 - progress * 0.5);
+
+        ctx.globalAlpha = Math.max(0, Math.min(1, delta.framesLeft / 25));
         
         // Adiciona um contorno branco para contraste
         ctx.strokeStyle = '#ffffff';
@@ -1274,12 +1270,10 @@ export class TurnGameScene {
     this.actionPoints = 0;
     this.turnStartColonyIds.clear();
     this.actedColonyIds.clear();
-    this.naturalSelectionQueue = [];
     this.gameOverTitle = 'Fim da vida na Terra';
     this.gameOverQuote = quote.text;
     this.gameOverQuoteAuthor = quote.author;
     this.gameOverDetail = 'Sem linhagens remanescentes, a biosfera colapsou. Na história real da Terra, extinções em massa eliminaram a maior parte das espécies, mas a vida persistiu porque alguns ramos sobreviveram. Nesta partida, nenhuma colônia resistiu para reconstruir o ecossistema.';
-    this.naturalSelectionDetail = 'Nenhuma colonia sobreviveu. A historia evolutiva foi interrompida.';
     this.pushLog('Game over: a ultima linhagem desapareceu e a vida na Terra entrou em colapso.');
   }
 
@@ -1290,12 +1284,10 @@ export class TurnGameScene {
     this.actionPoints = 0;
     this.turnStartColonyIds.clear();
     this.actedColonyIds.clear();
-    this.naturalSelectionQueue = [];
     this.gameOverTitle = 'Fim da linhagem humana';
     this.gameOverQuote = quote.text;
     this.gameOverQuoteAuthor = quote.author;
     this.gameOverDetail = 'Ainda existem colonias vivas, mas nenhuma delas pertence mais a um ramo capaz de chegar ao Homo sapiens. A historia continua sem voce, mas o objetivo desta campanha foi perdido.';
-    this.naturalSelectionDetail = 'O ultimo ramo capaz de chegar ao Homo sapiens foi perdido.';
     this.pushLog('Game over: o ultimo ramo capaz de chegar ao Homo sapiens foi perdido.');
   }
 
@@ -1305,9 +1297,7 @@ export class TurnGameScene {
     this.triggerExtinctionAnimation(colony);
     this.colonies.delete(colony.id);
     if (this.selectedColonyId === colony.id) this.selectedColonyId = null;
-    this.pushLog(`Selecao Natural: ${detail} A colonia foi extinta em ${cell}.`);
-    this.naturalSelectionSummaryLines.push(`${name} em ${cell}: extinta (${summaryReason}).`);
-    this.naturalSelectionDetail = `${name} colapsou e desapareceu em ${cell}.`;
+    this.pushLog(`${name} extinta em ${cell}: ${detail} (${summaryReason})`);
 
     const dependents = [...this.colonies.values()].filter(
       (candidate) =>
@@ -1315,16 +1305,14 @@ export class TurnGameScene {
         && candidate.gestatingUntilTurn !== null
         && !this.isColonyEstablished(candidate),
     );
-
     for (const dependent of dependents) {
       this.extinctColony(
         dependent,
-        `A expansao em ${this.formatCellLabel(dependent.x, dependent.y)} dependia de ${name}, que foi perdida.`,
+        `A expansão dependia de ${name}, que foi perdida.`,
         'expansao abortada',
       );
     }
 
-    this.naturalSelectionQueue = this.naturalSelectionQueue.filter((event) => event.colonyId !== colony.id);
     if (this.colonies.size === 0) {
       this.triggerGameOver();
     }
@@ -1353,192 +1341,70 @@ export class TurnGameScene {
     this.syncWorldStage();
   }
 
-  private beginNaturalSelection(previousSelectedColonyId: number | null): void {
-    this.phase = 'natural-selection';
-    this.mode = 'idle';
-    this.selectedColonyId = previousSelectedColonyId;
-    this.naturalSelectionSummaryLines = [];
-    this.naturalSelectionQueue = this.buildNaturalSelectionQueue();
-    this.naturalSelectionDelay = NATURAL_SELECTION_EVENT_DELAY_FRAMES + 24;
-    this.naturalSelectionResolvedCount = 0;
-    this.naturalSelectionBanner = 'Selecao Natural';
+  private runNaturalSelection(): void {
+    const ownsBiomassDeltaBatch = this.biomassDeltaBatch === null;
+    if (ownsBiomassDeltaBatch) this.beginBiomassDeltaBatch();
 
-    if (this.naturalSelectionQueue.length === 0) {
-      this.naturalSelectionDetail = 'Nenhum erro grave foi punido neste ciclo.';
-      this.pushLog('Selecao Natural: nenhuma colonia sofreu pressao evolutiva neste ciclo.');
-      return;
-    }
-
-    this.naturalSelectionDetail = `${this.naturalSelectionQueue.length} evento(s) automatico(s) serao resolvidos nesta fase.`;
-    this.pushLog('Selecao Natural: o ambiente vai cobrar os erros deste turno.');
-  }
-
-  private buildNaturalSelectionQueue(): NaturalSelectionEvent[] {
-    const events: NaturalSelectionEvent[] = [];
-
-    for (const colony of this.colonies.values()) {
+    const snapshot = [...this.colonies.values()];
+    for (const colony of snapshot) {
+      if (!this.colonies.has(colony.id)) continue;
       if (!this.isColonyEstablished(colony)) continue;
 
+      // Suporte de colônias terminais vizinhas
       const terminalNeighbors = this.getNeighborColonies(colony)
-        .filter((neighbor) => this.isColonyEstablished(neighbor) && this.isTerminalColony(neighbor));
-
+        .filter((n) => this.isColonyEstablished(n) && this.isTerminalColony(n));
       if (terminalNeighbors.length > 0) {
-        events.push({
-          colonyId: colony.id,
-          kind: 'support',
-          detail: `${this.getColonyName(colony)} em ${this.formatCellLabel(colony.x, colony.y)} recebeu +${terminalNeighbors.length} biomassa de colônias terminais vizinhas.`,
-        });
-      }
-
-      if (!this.isTerminalColony(colony) && colony.createdTurn < this.turn) {
-        events.push({
-          colonyId: colony.id,
-          kind: 'attrition',
-          detail: `${this.getColonyName(colony)} em ${this.formatCellLabel(colony.x, colony.y)} perdeu 1 biomassa para sustentar a linhagem neste ciclo.`,
-        });
+        colony.biomass += terminalNeighbors.length;
+        this.recordBiomassDelta(colony.id, terminalNeighbors.length);
+        this.pushLog(`${this.getColonyName(colony)} em ${this.formatCellLabel(colony.x, colony.y)} recebeu +${terminalNeighbors.length} de suporte terminal.`);
       }
 
       if (this.isTerminalColony(colony)) continue;
 
+      // Atrito de manutenção
+      if (colony.createdTurn < this.turn) {
+        const previousBiomass = colony.biomass;
+        colony.biomass = Math.max(0, colony.biomass - 1);
+        this.recordBiomassDelta(colony.id, colony.biomass - previousBiomass);
+        if (colony.biomass <= 0) {
+          this.extinctColony(colony, 'Ficou sem biomassa.', 'biomassa zerada');
+          continue;
+        }
+      }
+
+      if (!this.colonies.has(colony.id)) continue;
+
+      // Exposição: isolada em bioma hostil
       const biome = this.terrain[colony.y][colony.x];
-      const neighborCount = this.getNeighborColonies(colony).length;
-      if (biome !== 'ocean' && neighborCount === 0 && !colony.fortified) {
-        events.push({
-          colonyId: colony.id,
-          kind: 'exposure',
-          detail: `${this.getColonyName(colony)} em ${this.formatCellLabel(colony.x, colony.y)} ficou isolada em ${this.getBiomeLabel(biome)} sem suporte.`,
-        });
+      if (biome !== 'ocean' && this.getNeighborColonies(colony).length === 0 && !colony.fortified) {
+        colony.population -= 1;
+        if (colony.population <= 0) {
+          this.extinctColony(colony, `Isolada em ${this.getBiomeLabel(biome)} sem suporte.`, 'exposição');
+          continue;
+        }
+        this.pushLog(`${this.getColonyName(colony)} em ${this.formatCellLabel(colony.x, colony.y)} perdeu população por exposição.`);
         continue;
       }
 
+      // Estagnação: bioma errado para evoluir
       const current = EVOLUTION_BY_ID.get(colony.lifeFormId);
       if (!current || current.next.length === 0) continue;
+      if (current.next.some((step) => step.biome === biome)) continue;
 
-      const sameBiomeSteps = current.next.filter((step) => step.biome === biome);
-      if (sameBiomeSteps.length > 0) continue;
-
-      const targetBiomes = [...new Set(current.next.map((step) => this.getBiomeLabel(step.biome)))];
-      events.push({
-        colonyId: colony.id,
-        kind: 'stagnation',
-        detail: `${this.getColonyName(colony)} em ${this.formatCellLabel(colony.x, colony.y)} estÃ¡ no bioma errado para continuar evoluindo. Precisa migrar para ${targetBiomes.join(' ou ')}.`,
-      });
-    }
-
-    return events;
-  }
-
-  private updateNaturalSelection(): void {
-    if (this.naturalSelectionDelay > 0) {
-      this.naturalSelectionDelay -= 1;
-      return;
-    }
-
-    if (this.naturalSelectionQueue.length === 0) {
-      this.finishNaturalSelection();
-      return;
-    }
-
-    const event = this.naturalSelectionQueue.shift();
-    if (!event) {
-      this.finishNaturalSelection();
-      return;
-    }
-
-    this.applyNaturalSelectionEvent(event);
-    this.naturalSelectionDelay = NATURAL_SELECTION_EVENT_DELAY_FRAMES + 12;
-  }
-
-  private applyNaturalSelectionEvent(event: NaturalSelectionEvent): void {
-    const colony = this.colonies.get(event.colonyId);
-    if (!colony || !this.isColonyEstablished(colony)) return;
-
-    if (event.kind === 'support') {
-      const terminalNeighbors = this.getNeighborColonies(colony)
-        .filter((neighbor) => this.isColonyEstablished(neighbor) && this.isTerminalColony(neighbor));
-      const supportBiomass = terminalNeighbors.length;
-      if (supportBiomass <= 0) return;
-
-      colony.biomass += supportBiomass;
-      this.naturalSelectionResolvedCount += 1;
-      this.spawnFloatingDelta(colony.id, `+${supportBiomass}`, WORLD_COLORS.biomassGain);
-      this.naturalSelectionSummaryLines.push(`${this.getColonyName(colony)} em ${this.formatCellLabel(colony.x, colony.y)}: +${supportBiomass} biomassa por suporte terminal.`);
-      this.pushLog(`Selecao Natural: ${event.detail}`);
-      this.naturalSelectionDetail = event.detail;
-      return;
-    }
-
-    if (event.kind === 'attrition') {
-      colony.biomass = Math.max(0, colony.biomass - 1);
-      this.naturalSelectionResolvedCount += 1;
-      this.spawnFloatingDelta(colony.id, '-1', WORLD_COLORS.biomassLoss);
-      if (colony.biomass <= 0) {
-        this.extinctColony(colony, `${event.detail} Ficou sem biomassa local.`, 'biomassa local zerada');
-        return;
+      if (colony.adaptationPoints > 0) {
+        colony.adaptationPoints -= 1;
+        this.pushLog(`${this.getColonyName(colony)} em ${this.formatCellLabel(colony.x, colony.y)} perdeu adaptação por estagnação.`);
+      } else {
+        colony.population -= 1;
+        if (colony.population <= 0) {
+          this.extinctColony(colony, 'Sem adaptação, extinta por estagnação.', 'estagnação');
+        } else {
+          this.pushLog(`${this.getColonyName(colony)} em ${this.formatCellLabel(colony.x, colony.y)} perdeu população por estagnação.`);
+        }
       }
-
-      this.naturalSelectionSummaryLines.push(`${this.getColonyName(colony)} em ${this.formatCellLabel(colony.x, colony.y)}: -1 biomassa local.`);
-      this.pushLog(`Selecao Natural: ${event.detail}`);
-      this.naturalSelectionDetail = event.detail;
-      return;
     }
 
-    if (event.kind === 'exposure') {
-      colony.population -= 1;
-      this.naturalSelectionResolvedCount += 1;
-      this.naturalSelectionSummaryLines.push(`${this.getColonyName(colony)} em ${this.formatCellLabel(colony.x, colony.y)}: -1 populacao por exposicao.`);
-
-      if (colony.population <= 0) {
-        this.extinctColony(colony, `${event.detail} A colonia colapsou.`, 'exposicao');
-        return;
-      }
-
-      this.pushLog(`Selecao Natural: ${event.detail} Perdeu 1 populacao.`);
-      this.naturalSelectionDetail = event.detail;
-      return;
-    }
-
-    if (colony.adaptationPoints > 0) {
-      colony.adaptationPoints -= 1;
-      this.naturalSelectionResolvedCount += 1;
-      this.naturalSelectionSummaryLines.push(`${this.getColonyName(colony)} em ${this.formatCellLabel(colony.x, colony.y)}: -1 adaptacao por estagnacao.`);
-      this.pushLog(`Selecao Natural: ${event.detail} Perdeu 1 adaptacao por estagnacao.`);
-      this.naturalSelectionDetail = event.detail;
-      return;
-    }
-
-    colony.population -= 1;
-    this.naturalSelectionResolvedCount += 1;
-    this.naturalSelectionSummaryLines.push(`${this.getColonyName(colony)} em ${this.formatCellLabel(colony.x, colony.y)}: -1 populacao por falta de adaptacao.`);
-
-    if (colony.population <= 0) {
-      this.extinctColony(colony, `${event.detail} Sem adaptacao restante, a colonia foi extinta.`, 'falta de adaptacao');
-      return;
-    }
-
-    this.pushLog(`Selecao Natural: ${event.detail} Sem adaptacao restante, perdeu 1 populacao.`);
-    this.naturalSelectionDetail = event.detail;
-  }
-
-  private finishNaturalSelection(): void {
-    if (this.gameOver) {
-      this.phase = 'player';
-      return;
-    }
-
-    if (!this.hasHumanReachableLineage()) {
-      this.triggerHumanPathLostGameOver();
-      this.phase = 'player';
-      return;
-    }
-
-    const previousSelectedColonyId = this.selectedColonyId;
-    const resolved = this.naturalSelectionResolvedCount;
-    this.turn += 1;
-    this.startTurn(previousSelectedColonyId);
-    if (resolved > 0) {
-      this.pushLog(`Selecao Natural encerrou: ${resolved} erro(s) foram punidos automaticamente.`);
-    }
+    if (ownsBiomassDeltaBatch) this.flushBiomassDeltaBatch();
   }
 
   private tryExpandTo(x: number, y: number): void {
@@ -1562,7 +1428,8 @@ export class TurnGameScene {
     colony.biomass -= 1;
     colony.autoExplore = false;
     colony.autoConsolidate = false;
-    this.addColony(x, y, {
+    this.recordBiomassDelta(colony.id, -1);
+    const newColony = this.addColony(x, y, {
       population: 1,
       biomass: 1,
       lifeFormId: colony.lifeFormId,
@@ -1572,9 +1439,9 @@ export class TurnGameScene {
       autoConsolidate: true,
       createdTurn: this.turn,
     });
+    this.recordBiomassDelta(newColony.id, 1);
     this.consumeColonyAction(colony.id);
     this.mode = 'idle';
-    this.selectNextAvailableColony(colony.id);
     this.pushLog(`A expansão para ${this.formatCellLabel(x, y)} aconteceu imediatamente. A nova colônia já está estável.`);
     this.updateHUD();
   }
@@ -1650,6 +1517,7 @@ export class TurnGameScene {
       if (remaining <= 0) break;
       const spent = Math.min(colony.biomass, remaining);
       colony.biomass -= spent;
+      this.recordBiomassDelta(colony.id, -spent);
       remaining -= spent;
     }
 
@@ -1661,7 +1529,9 @@ export class TurnGameScene {
   }
 
   private canColonyAct(colony: Colony): boolean {
-    return this.turnStartColonyIds.has(colony.id) && !this.actedColonyIds.has(colony.id) && this.isColonyReadyForTurn(colony);
+    return this.turnStartColonyIds.has(colony.id)
+      && !this.actedColonyIds.has(colony.id)
+      && this.isColonyReadyForTurn(colony);
   }
 
   private consumeColonyAction(colonyId: number): void {
@@ -1706,27 +1576,6 @@ export class TurnGameScene {
     return highest;
   }
 
-  private selectNextAvailableColony(fromColonyId: number | null): void {
-    const orderedIds = [...this.turnStartColonyIds].sort((a, b) => a - b);
-    if (orderedIds.length === 0) {
-      this.selectedColonyId = null;
-      return;
-    }
-
-    const currentIndex = fromColonyId === null ? -1 : orderedIds.indexOf(fromColonyId);
-    const searchStart = currentIndex >= 0 ? currentIndex + 1 : 0;
-
-    for (let offset = 0; offset < orderedIds.length; offset += 1) {
-      const candidateId = orderedIds[(searchStart + offset) % orderedIds.length];
-      const candidate = this.colonies.get(candidateId);
-      if (candidate && this.canColonyAct(candidate)) {
-        this.selectedColonyId = candidateId;
-        return;
-      }
-    }
-
-    this.selectedColonyId = null;
-  }
 
   private getColonyAt(x: number, y: number): Colony | null {
     for (const colony of this.colonies.values()) {
@@ -1810,22 +1659,16 @@ export class TurnGameScene {
         ? `${this.getBiomeLabel(this.terrain[this.hoverCell.y][this.hoverCell.x]).toUpperCase()} — ${this.formatCellLabel(this.hoverCell.x, this.hoverCell.y)} — Potencial: ${this.tileEnergy[this.hoverCell.y][this.hoverCell.x]} Nutrientes`
         : 'Nenhuma colônia selecionada.');
     const hint = this.buildHint();
-    const objective = this.phase === 'natural-selection'
-      ? 'Seleção Natural'
-      : nextEvolution ? `Evolua para ${nextEvolution.name}` : 'Vitória';
+    const objective = nextEvolution ? `Evolua para ${nextEvolution.name}` : 'Vitória';
     const objectiveDetail = this.buildObjectiveDetail(selected);
-    const isPlayerPhase = this.phase === 'player' && !this.gameOver;
-    const canExplore = isPlayerPhase && !this.gameWon && selected !== null && this.canColonyAct(selected);
+    const isPlayerPhase = !this.gameOver;
     const canAdapt = isPlayerPhase && !this.gameWon && selected !== null && this.canColonyAct(selected) && selected.adaptationPoints > 0 && this.canSelectedAdapt();
     const adaptBlockedReason = canAdapt ? '' : this.getAdaptBlockedReason(selected);
     const canExpand = isPlayerPhase && !this.gameWon && this.hasExpandTarget(selected);
     const canDecompose = isPlayerPhase && !this.gameWon && selected !== null && this.isColonyEstablished(selected) && this.isTerminalColony(selected);
     const floatingAnchor = selected ? this.getFloatingMenuAnchor(selected) : null;
-    const phaseLabel = this.phase === 'natural-selection' ? 'Selecao Natural' : 'Planejamento';
 
     this.hud.update({
-      turn: this.turn,
-      phaseLabel,
       actionPoints: this.actionPoints,
       biomass: this.getBiomassPool(),
       adaptation: selected?.adaptationPoints ?? this.getTotalAdaptationPoints(),
@@ -1834,20 +1677,14 @@ export class TurnGameScene {
       objectiveDetail,
       selectedSummary,
       hint,
-      modeLabel: this.phase === 'natural-selection'
-        ? 'Modo: seleção natural automática'
-        : this.mode === 'expand' ? 'Modo: expandir' : this.mode === 'seed' ? 'Modo: semear' : 'Modo: seleção',
+      modeLabel: this.mode === 'expand' ? 'Modo: expandir' : this.mode === 'seed' ? 'Modo: semear' : 'Modo: seleção',
       progress: (this.stageIndex / (STAGES.length - 1)) * 100,
       logLines: this.logLines,
-      canConsolidate: canExplore,
-      consolidateActive: selected?.autoExplore ?? false,
       canAdapt,
       adaptBlockedReason,
       canExpand,
       canDecompose,
       canSeed: isPlayerPhase && !this.gameWon && this.getBiomassPool() >= SEED_COST && this.mode === 'idle',
-      canEndTurn: isPlayerPhase && !this.gameWon,
-      endTurnLabel: this.gameWon ? 'Vitória alcançada' : 'Encerrar turno',
       showCancel: isPlayerPhase && (this.mode === 'expand' || this.mode === 'seed'),
       floatingMenuVisible: isPlayerPhase && !this.gameWon && selected !== null && this.mode === 'idle',
       floatingMenuX: floatingAnchor?.x ?? 0,
@@ -1856,8 +1693,8 @@ export class TurnGameScene {
       floatingCancelVisible: isPlayerPhase && !this.gameWon && (this.mode === 'expand' || this.mode === 'seed'),
       selectedColonyName: selected ? this.getColonyName(selected) : '',
       selectedColonyDef: selected ? (EVOLUTION_BY_ID.get(selected.lifeFormId) ?? null) : null,
-      phaseBannerTitle: this.phase === 'natural-selection' ? this.naturalSelectionBanner : (this.currentEvent ? `${this.currentEvent.emoji} ${this.currentEvent.name}` : ''),
-      phaseBannerDetail: this.phase === 'natural-selection' ? this.naturalSelectionDetail : (this.currentEvent ? this.currentEvent.description : ''),
+      phaseBannerTitle: this.currentEvent ? `${this.currentEvent.emoji} ${this.currentEvent.name}` : '',
+      phaseBannerDetail: this.currentEvent ? this.currentEvent.description : '',
       terminalInfoVisible: this.terminalInfoVisible,
       terminalInfoTitle: this.terminalInfoTitle,
       terminalInfoLead: this.terminalInfoLead,
@@ -1910,9 +1747,6 @@ export class TurnGameScene {
   }
 
   private buildHint(): string {
-    if (this.phase === 'natural-selection') {
-      return 'A Selecao Natural resolve automaticamente colonias isoladas e linhagens paradas no bioma errado.';
-    }
     if (this.gameWon) {
       return 'A partida termina aqui: o objetivo do jogo era conduzir uma linhagem ancestral até o Homo sapiens.';
     }
@@ -1936,16 +1770,13 @@ export class TurnGameScene {
     }
 
     if (selected.autoExplore) {
-      return `Exploracao automatica ativa em ${this.formatCellLabel(selected.x, selected.y)}. Use explorar novamente para desligar.`;
+      return `Exploracao automatica ativa em ${this.formatCellLabel(selected.x, selected.y)}. A colonia explorara de novo se nao adaptar nem expandir.`;
     }
     const requiredBiome = this.getBiomeLabel(nextEvolution.requiredBiome);
     return `Adapte em ${requiredBiome} para avançar de ${this.getColonyName(selected)} para ${nextEvolution.name}.`;
   }
 
   private buildObjectiveDetail(selected: Colony | null): string {
-    if (this.phase === 'natural-selection') {
-      return this.naturalSelectionDetail || 'O ambiente esta aplicando as consequencias das suas escolhas.';
-    }
     if (this.gameWon) {
       return 'A jornada desta linhagem foi concluída no Homo sapiens.';
     }
@@ -1984,7 +1815,7 @@ export class TurnGameScene {
       return ` — ocupada até T${colony.busyUntilTurn}`;
     }
     if (colony.autoExplore) {
-      return ' - auto explorar';
+      return ' - exploracao automatica';
     }
     if (!this.canColonyAct(colony)) {
       return ' — já agiu';
@@ -2136,7 +1967,6 @@ export class TurnGameScene {
   getDebugState(): Record<string, unknown> {
     return {
       turn: this.turn,
-      phase: this.phase,
       gameOver: this.gameOver,
       actionPoints: this.actionPoints,
       biomass: this.getBiomassPool(),
