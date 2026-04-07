@@ -601,7 +601,6 @@ export class TurnGameScene {
       }
     }
     this.updateFloatingDeltas();
-    this.updateHUD();
   }
 
   render(ctx: CanvasRenderingContext2D): void {
@@ -1272,12 +1271,14 @@ export class TurnGameScene {
     const generation = this.biomassAnimationGeneration;
     if (!this.hud.launchBiomassOrb) {
       this.displayedBiomassPool += amount;
+      this.updateHUD();
       return;
     }
 
     this.hud.launchBiomassOrb(start, () => {
       if (generation !== this.biomassAnimationGeneration) return;
       this.displayedBiomassPool += amount;
+      this.updateHUD();
     });
   }
 

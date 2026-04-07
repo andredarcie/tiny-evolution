@@ -6,6 +6,7 @@ export class Game {
   private ctx: CanvasRenderingContext2D;
   private scene: TurnGameScene;
   private animId = 0;
+  private renderScale = 1;
   private readonly modalScrollableSelector = [
     '#info-modal-body',
     '#merge-modal-body',
@@ -72,12 +73,13 @@ export class Game {
   }
 
   private applySize(): void {
-    const dpr = window.devicePixelRatio || 1;
     const { width: w, height: h } = this.getViewportSize();
+    const dpr = window.devicePixelRatio || 1;
+    this.renderScale = Math.min(dpr, w < 980 ? 1.5 : 2);
     document.documentElement.style.setProperty('--app-height', `${h}px`);
     document.documentElement.style.setProperty('--app-width', `${w}px`);
-    this.canvas.width  = Math.floor(w * dpr);
-    this.canvas.height = Math.floor(h * dpr);
+    this.canvas.width  = Math.floor(w * this.renderScale);
+    this.canvas.height = Math.floor(h * this.renderScale);
     this.canvas.style.width  = `${w}px`;
     this.canvas.style.height = `${h}px`;
   }
@@ -102,8 +104,7 @@ export class Game {
   };
 
   private loop = (): void => {
-    const dpr = window.devicePixelRatio || 1;
-    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.ctx.setTransform(this.renderScale, 0, 0, this.renderScale, 0, 0);
 
     this.scene.update();
     this.scene.render(this.ctx);
