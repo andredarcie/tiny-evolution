@@ -314,6 +314,8 @@ export interface TurnHUDState {
   terminalInfoLead: string;
   terminalInfoBenefits: string[];
   terminalInfoBiology: string;
+  milestoneNotificationTitle: string;
+  milestoneNotificationRead: boolean;
   milestoneInfoVisible: boolean;
   milestoneInfoTitle: string;
   milestoneInfoWhen: string;
@@ -334,6 +336,7 @@ export type HUDActionHandlers = {
   onCancel: () => void;
   onCloseTerminalInfo: () => void;
   onCloseMilestoneInfo: () => void;
+  onOpenMilestoneNotification: () => void;
   onRestart: () => void;
 };
 
@@ -346,6 +349,9 @@ export class TurnHUD {
   private seedBtn: HTMLButtonElement;
   private treeBtn: HTMLButtonElement;
   private encyclopediaBtn: HTMLButtonElement;
+  private milestoneNotifyBannerEl: HTMLButtonElement;
+  private milestoneNotifyTitleEl: HTMLElement;
+  private milestoneNotifyCtaEl: HTMLElement;
   private floatingMenuEl: HTMLElement;
   private floatingCancelEl: HTMLElement;
   private floatingAdaptBtn: HTMLButtonElement;
@@ -398,6 +404,15 @@ export class TurnHUD {
         <div class="hud-phase-banner-title" id="hud-phase-banner-title"></div>
         <div class="hud-phase-banner-detail" id="hud-phase-banner-detail"></div>
       </div>
+
+      <button class="milestone-notify-banner hidden" id="milestone-notify-banner" aria-label="Ver marco evolutivo">
+        <span class="milestone-notify-icon">🏆</span>
+        <div class="milestone-notify-text">
+          <span class="milestone-notify-label">Marco atingido</span>
+          <span class="milestone-notify-title" id="milestone-notify-title"></span>
+        </div>
+        <span class="milestone-notify-cta" id="milestone-notify-cta">Ver →</span>
+      </button>
 
       <div class="floating-action-menu floating-right hidden" id="floating-action-menu">
         <div class="floating-menu-title" id="floating-menu-title">
@@ -634,6 +649,9 @@ export class TurnHUD {
     this.seedBtn = this.root.querySelector('#hud-seed')!;
     this.treeBtn = this.root.querySelector('#hud-tree')!;
     this.encyclopediaBtn = this.root.querySelector('#hud-encyclopedia')!;
+    this.milestoneNotifyBannerEl = this.root.querySelector<HTMLButtonElement>('#milestone-notify-banner')!;
+    this.milestoneNotifyTitleEl = this.root.querySelector('#milestone-notify-title')!;
+    this.milestoneNotifyCtaEl = this.root.querySelector('#milestone-notify-cta')!;
     this.floatingMenuEl = this.root.querySelector('#floating-action-menu')!;
     this.floatingCancelEl = this.root.querySelector('#floating-cancel-menu')!;
     this.floatingAdaptBtn = this.root.querySelector('#floating-adapt')!;
@@ -686,6 +704,7 @@ export class TurnHUD {
     this.renderEncyclopediaTopic(this.activeEncyclopediaTopicId);
 
     this.seedBtn.addEventListener('click', handlers.onSeed);
+    this.milestoneNotifyBannerEl.addEventListener('click', handlers.onOpenMilestoneNotification);
     this.encyclopediaBtn.addEventListener('click', () => this.encyclopediaModalEl.classList.remove('hidden'));
     this.treeBtn.addEventListener('click', () => this.treeModalEl.classList.remove('hidden'));
     this.floatingCancelBtn.addEventListener('click', handlers.onCancel);
@@ -724,6 +743,12 @@ export class TurnHUD {
       ? `<ul class="terminal-info-list">${state.terminalInfoBenefits.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
       : '';
     this.terminalInfoBiologyEl.textContent = state.terminalInfoBiology;
+    const hasNotification = !!state.milestoneNotificationTitle;
+    this.milestoneNotifyBannerEl.classList.toggle('hidden', !hasNotification);
+    this.milestoneNotifyBannerEl.classList.toggle('is-read', state.milestoneNotificationRead);
+    this.milestoneNotifyTitleEl.textContent = state.milestoneNotificationTitle;
+    this.milestoneNotifyCtaEl.textContent = state.milestoneNotificationRead ? '✓ Lido' : 'Ver →';
+    this.milestoneNotifyBannerEl.disabled = state.milestoneNotificationRead;
     this.milestoneInfoModalEl.classList.toggle('hidden', !state.milestoneInfoVisible);
     this.milestoneInfoTitleEl.textContent = state.milestoneInfoTitle;
     this.milestoneInfoWhenEl.textContent = state.milestoneInfoWhen;

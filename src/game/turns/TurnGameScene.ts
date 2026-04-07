@@ -9,7 +9,6 @@ import {
   type Biome,
   type EvolutionDefinition,
 } from './evolutionData';
-import { rollTurnEvent, type TurnEvent } from './TurnEventSystem';
 
 type ActionMode = 'idle' | 'expand' | 'seed';
 
@@ -416,8 +415,6 @@ export class TurnGameScene {
   private hoverCell: { x: number; y: number } | null = null;
   private nextColonyId = 1;
   private turn = 1;
-  private currentEvent: TurnEvent | null = null;
-  private eventLogMessage = '';
   private actionPoints = 0;
   private stageIndex = 0;
   private gameWon = false;
@@ -435,6 +432,8 @@ export class TurnGameScene {
   private milestoneInfoBody = '';
   private readonly shownMilestoneIds = new Set<string>();
   private readonly pendingMilestoneIds: string[] = [];
+  private milestoneNotificationTitle = '';
+  private milestoneNotificationRead = false;
   private readonly floatingDeltas: FloatingDelta[] = [];
   private biomassDeltaBatch: Map<number, number> | null = null;
   private readonly extinctionBursts: ExtinctionBurst[] = [];
@@ -452,14 +451,10 @@ export class TurnGameScene {
   private boardWidth = 0;
   private boardHeight = 0;
   private isDesktop = false;
-  private eventsEnabled = true;
   private tickTimer = 0;
 
-  constructor(hud: TurnHUD, options?: { disableEvents?: boolean }) {
+  constructor(hud: TurnHUD, _options?: { disableEvents?: boolean }) {
     this.hud = hud;
-    if (options?.disableEvents) {
-      this.eventsEnabled = false;
-    }
     const { terrain, tileEnergy } = generateRandomTerrain();
     this.terrain = terrain;
     this.tileEnergy = tileEnergy;
@@ -467,7 +462,6 @@ export class TurnGameScene {
     this.startTurn();
     this.selectedColonyId = openingColony.id;
     this.queueReachedMilestones();
-    this.showNextMilestoneInfo();
     this.pushLog('Uma bactéria primitiva surgiu no oceano em um tile com nutrientes. Selecione a colônia e use sua ação.');
     this.updateHUD();
     this.registerKeyboardShortcuts();
@@ -483,8 +477,6 @@ export class TurnGameScene {
     this.hoverCell = null;
     this.nextColonyId = 1;
     this.turn = 1;
-    this.currentEvent = null;
-    this.eventLogMessage = '';
     this.actionPoints = 0;
     this.stageIndex = 0;
     this.gameWon = false;
@@ -502,6 +494,8 @@ export class TurnGameScene {
     this.milestoneInfoBody = '';
     this.shownMilestoneIds.clear();
     this.pendingMilestoneIds.length = 0;
+    this.milestoneNotificationTitle = '';
+    this.milestoneNotificationRead = false;
     this.floatingDeltas.length = 0;
     this.biomassDeltaBatch = null;
     this.extinctionBursts.length = 0;
@@ -517,7 +511,6 @@ export class TurnGameScene {
     this.startTurn();
     this.selectedColonyId = openingColony.id;
     this.queueReachedMilestones();
-    this.showNextMilestoneInfo();
     this.pushLog('Uma bactéria primitiva surgiu no oceano em um tile com nutrientes. Selecione a colônia e use sua ação.');
     this.updateHUD();
   }
@@ -603,7 +596,7 @@ export class TurnGameScene {
   }
 
   handlePointerDown(clientX: number, clientY: number): void {
-    if (this.milestoneInfoVisible || this.terminalInfoVisible) return;
+    if (this.terminalInfoVisible) return;
     if (this.gameOver) return;
 
     const cell = this.getCellAtPoint(clientX, clientY);
@@ -687,9 +680,6 @@ export class TurnGameScene {
     if (!this.gameWon && this.isTerminalColony(colony)) {
       this.showTerminalInfo(colony);
     }
-    if (!this.terminalInfoVisible) {
-      this.showNextMilestoneInfo();
-    }
     this.updateHUD();
   }
 
@@ -720,6 +710,10 @@ export class TurnGameScene {
 
   dismissTerminalInfo(): void {
     this.terminalInfoVisible = false;
+    this.updateHUD();
+  }
+
+  openMilestoneNotification(): void {
     this.showNextMilestoneInfo();
     this.updateHUD();
   }
@@ -727,7 +721,29 @@ export class TurnGameScene {
   dismissMilestoneInfo(): void {
     this.milestoneInfoVisible = false;
     this.milestoneInfoWhen = '';
-    this.showNextMilestoneInfo();
+    if (this.pendingMilestoneIds.length > 0) {
+      // More unread milestones — update notification to next one
+      const nextId = this.pendingMilestoneIds[0];
+      const next = LIFE_MILESTONES.find((m) => m.id === nextId);
+      if (next) {
+        this.milestoneNotificationTitle = next.title;
+        this.milestoneNotificationRead = false;
+      }
+    } else {
+      // All read — show "lido" state then hide
+      this.milestoneNotificationRead = true;
+      const titleAtDismiss = this.milestoneNotificationTitle;
+      this.updateHUD();
+      setTimeout(() => {
+        // Only clear if no new milestone arrived during the fade
+        if (this.milestoneNotificationTitle === titleAtDismiss) {
+          this.milestoneNotificationTitle = '';
+          this.milestoneNotificationRead = false;
+          this.updateHUD();
+        }
+      }, 2800);
+      return;
+    }
     this.updateHUD();
   }
 
@@ -799,8 +815,6 @@ export class TurnGameScene {
     if (this.gameWon || this.gameOver) return;
     this.tickTimer = 0;
     this.mode = 'idle';
-    this.currentEvent = null;
-    this.eventLogMessage = '';
     this.beginBiomassDeltaBatch();
     this.resolveImplicitExplorationOrders();
     this.resolveAutoExplorationOrders();
@@ -878,16 +892,6 @@ export class TurnGameScene {
   }
 
   private startTurn(): void {
-    const biomassBeforeEvent = this.getColonyBiomassSnapshot();
-    this.currentEvent = this.eventsEnabled ? rollTurnEvent(this.getHighestWorldStage()) : null;
-    if (this.currentEvent) {
-      this.eventLogMessage = this.currentEvent.apply?.(this) || '';
-      this.recordBiomassChangesSince(biomassBeforeEvent);
-      this.pushLog(`${this.currentEvent.emoji} Evento: ${this.currentEvent.name}. ${this.eventLogMessage}`);
-    } else {
-      this.eventLogMessage = '';
-    }
-
     this.resolveTurnTransitions();
     this.actedColonyIds.clear();
     this.turnStartColonyIds = new Set(
@@ -953,6 +957,15 @@ export class TurnGameScene {
       if (this.shownMilestoneIds.has(milestone.id)) continue;
       if (this.pendingMilestoneIds.includes(milestone.id)) continue;
       this.pendingMilestoneIds.push(milestone.id);
+    }
+    // Always show the most recently arrived milestone in the notification
+    if (this.pendingMilestoneIds.length > 0) {
+      const latestId = this.pendingMilestoneIds[this.pendingMilestoneIds.length - 1];
+      const latest = LIFE_MILESTONES.find((m) => m.id === latestId);
+      if (latest) {
+        this.milestoneNotificationTitle = latest.title;
+        this.milestoneNotificationRead = false;
+      }
     }
   }
 
@@ -1196,18 +1209,6 @@ export class TurnGameScene {
     }
   }
 
-  private getColonyBiomassSnapshot(): Map<number, number> {
-    return new Map([...this.colonies.values()].map((colony) => [colony.id, colony.biomass]));
-  }
-
-  private recordBiomassChangesSince(snapshot: Map<number, number>): void {
-    for (const colony of this.colonies.values()) {
-      const before = snapshot.get(colony.id);
-      if (before === undefined) continue;
-      this.recordBiomassDelta(colony.id, colony.biomass - before);
-    }
-  }
-
   private drawFloatingDeltas(ctx: CanvasRenderingContext2D): void {
     ctx.save();
     if (this.floatingDeltas.length > 0) {
@@ -1327,6 +1328,13 @@ export class TurnGameScene {
 
       colony.fortified = false;
       colony.adaptationPoints += 1;
+
+      if (!this.isTerminalColony(colony)) {
+        const energy = this.tileEnergy[colony.y][colony.x];
+        const gained = Math.max(1, energy);
+        colony.biomass += gained;
+        this.recordBiomassDelta(colony.id, gained);
+      }
 
       if (this.isTerminalColony(colony)) {
         const neighbors = this.getNeighborColonies(colony);
@@ -1696,13 +1704,15 @@ export class TurnGameScene {
       floatingCancelVisible: isPlayerPhase && !this.gameWon && (this.mode === 'expand' || this.mode === 'seed'),
       selectedColonyName: selected ? this.getColonyName(selected) : '',
       selectedColonyDef: selected ? (EVOLUTION_BY_ID.get(selected.lifeFormId) ?? null) : null,
-      phaseBannerTitle: this.currentEvent ? `${this.currentEvent.emoji} ${this.currentEvent.name}` : '',
-      phaseBannerDetail: this.currentEvent ? this.currentEvent.description : '',
+      phaseBannerTitle: '',
+      phaseBannerDetail: '',
       terminalInfoVisible: this.terminalInfoVisible,
       terminalInfoTitle: this.terminalInfoTitle,
       terminalInfoLead: this.terminalInfoLead,
       terminalInfoBenefits: this.terminalInfoBenefits,
       terminalInfoBiology: this.terminalInfoBiology,
+      milestoneNotificationTitle: this.milestoneNotificationTitle,
+      milestoneNotificationRead: this.milestoneNotificationRead,
       milestoneInfoVisible: this.milestoneInfoVisible,
       milestoneInfoTitle: this.milestoneInfoTitle,
       milestoneInfoWhen: this.milestoneInfoWhen,

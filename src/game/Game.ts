@@ -35,6 +35,7 @@ export class Game {
       onCancel: () => this.scene.cancelCurrentMode(),
       onCloseTerminalInfo: () => this.scene.dismissTerminalInfo(),
       onCloseMilestoneInfo: () => this.scene.dismissMilestoneInfo(),
+      onOpenMilestoneNotification: () => this.scene.openMilestoneNotification(),
       onRestart: () => this.scene.restart(),
     });
     this.scene = new TurnGameScene(hud);
