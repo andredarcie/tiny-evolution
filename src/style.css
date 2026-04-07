@@ -4,7 +4,7 @@ html, body {
   width: 100%; height: 100%;
   overflow: hidden;
   background: #ebe2d3;
-  touch-action: none;
+  overscroll-behavior: none;
   -webkit-text-size-adjust: 100%;
 }
 
@@ -580,6 +580,8 @@ html, body {
 #info-modal-body,
 #merge-modal-body {
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   padding: 6px 0;
   flex: 1;
 }
@@ -757,6 +759,8 @@ html, body {
 
 #entity-modal-body {
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   flex: 1;
 }
 

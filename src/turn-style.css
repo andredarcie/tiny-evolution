@@ -745,6 +745,7 @@
 .tree-modal-content {
   overflow: auto;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   padding: 14px 16px 18px;
 }
 
@@ -771,6 +772,7 @@
   flex-shrink: 0;
   gap: 8px;
   overflow-x: auto;
+  touch-action: pan-x;
   padding: 10px 16px;
   border-bottom: 1px solid var(--ui-border);
   -webkit-overflow-scrolling: touch;
@@ -813,6 +815,7 @@
   min-height: 0;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   padding: 16px 16px 20px;
 }
 
@@ -1618,6 +1621,7 @@
 .colony-info-body {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   padding: 18px 16px 24px;
   display: flex;
   flex-direction: column;

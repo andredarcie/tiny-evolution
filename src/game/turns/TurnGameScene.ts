@@ -43,7 +43,10 @@ interface Colony {
   parentColonyId: number | null;
 }
 
-const GRID_SIZE = 8;
+const GRID_SIZE = 6;
+const MIN_OCEAN_TILES = 7;
+const MIN_COAST_TILES = 5;
+const MIN_LAND_TILES = 7;
 const SEED_COST = 4;
 const HUMAN_PATH_PRIORITY_CHANCE = 0.8;
 const TICK_INTERVAL = 180;
@@ -381,9 +384,9 @@ function generateRandomTerrain(): { terrain: Biome[][]; tileEnergy: number[][] }
     }
 
     if (
-      oceanCount >= 12
-      && coastCount >= 8
-      && landCount >= 12
+      oceanCount >= MIN_OCEAN_TILES
+      && coastCount >= MIN_COAST_TILES
+      && landCount >= MIN_LAND_TILES
       && oceanCoastAdjacency
       && coastLandAdjacency
     ) {

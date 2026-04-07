@@ -6,6 +6,15 @@ export class Game {
   private ctx: CanvasRenderingContext2D;
   private scene: TurnGameScene;
   private animId = 0;
+  private readonly modalScrollableSelector = [
+    '#info-modal-body',
+    '#merge-modal-body',
+    '#entity-modal-body',
+    '.tree-modal-content',
+    '.encyclopedia-content',
+    '.encyclopedia-nav',
+    '.colony-info-body',
+  ].join(', ');
 
   constructor(container: HTMLElement) {
     this.canvas = document.createElement('canvas');
@@ -13,8 +22,8 @@ export class Game {
     this.canvas.style.touchAction = 'none';
     container.appendChild(this.canvas);
 
-    // Prevent pull-to-refresh, pinch-zoom, and scroll bounce on mobile
-    document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+    // Prevent page-level mobile gestures without blocking modal scrolling.
+    document.addEventListener('touchmove', this.onDocumentTouchMove, { passive: false });
 
     this.ctx = this.canvas.getContext('2d')!;
 
@@ -83,6 +92,14 @@ export class Game {
     this.scene.handlePointerDown(event.clientX - rect.left, event.clientY - rect.top);
   };
 
+  private onDocumentTouchMove = (event: TouchEvent): void => {
+    const target = event.target;
+    if (target instanceof Element && target.closest(this.modalScrollableSelector)) {
+      return;
+    }
+    event.preventDefault();
+  };
+
   private loop = (): void => {
     const dpr = window.devicePixelRatio || 1;
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -96,6 +113,7 @@ export class Game {
     cancelAnimationFrame(this.animId);
     window.removeEventListener('resize', this.onWindowResize);
     window.visualViewport?.removeEventListener('resize', this.onWindowResize);
+    document.removeEventListener('touchmove', this.onDocumentTouchMove);
     this.canvas.removeEventListener('pointerdown', this.onPointerDown);
     delete (window as typeof window & {
       render_game_to_text?: () => string;
