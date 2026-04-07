@@ -1221,15 +1221,36 @@ export class TurnGameScene {
       ctx.fillStyle = WORLD_COLORS.text;
       ctx.restore();
 
-      if (colony.autoExplore) {
-        ctx.beginPath();
-        ctx.strokeStyle = 'rgba(243, 211, 107, 0.3)';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
-        ctx.arc(centerX, centerY, this.cellSize * 0.38, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.setLineDash([]);
+      if (!isGestating) {
+        const nextEvo = this.getNextEvolutionFor(colony);
+        const currentForm = EVOLUTION_BY_ID.get(colony.lifeFormId);
+        const isTerminal = currentForm && currentForm.next.length === 0;
+        if (nextEvo && !isTerminal) {
+          const cost = getAdaptCost(nextEvo, this.tileEnergy[colony.y][colony.x]);
+          const progress = Math.min(1, colony.biomass / cost);
+          const arcRadius = this.cellSize * 0.44;
+          const startAngle = -Math.PI / 2;
+
+          ctx.save();
+          ctx.lineWidth = 2.5;
+          ctx.lineCap = 'round';
+
+          ctx.beginPath();
+          ctx.strokeStyle = 'rgba(107, 90, 70, 0.15)';
+          ctx.arc(centerX, centerY, arcRadius, 0, Math.PI * 2);
+          ctx.stroke();
+
+          if (progress > 0) {
+            ctx.beginPath();
+            ctx.strokeStyle = progress >= 1 ? 'rgba(114, 179, 106, 0.9)' : 'rgba(201, 139, 46, 0.65)';
+            ctx.arc(centerX, centerY, arcRadius, startAngle, startAngle + progress * Math.PI * 2);
+            ctx.stroke();
+          }
+
+          ctx.restore();
+        }
       }
+
 
     }
 
