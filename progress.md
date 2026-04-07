@@ -9,3 +9,6 @@ px tsc --noEmit passaram.
 - 2026-03-30: `TurnGameScene` deixou de usar `BASE_MAP` fixo e passou a gerar `ocean`/`coast`/`land` proceduralmente a cada partida, com garantias minimas de jogabilidade (existencia dos tres biomas e adjacencias oceano-costa e costa-terra). Colônias iniciais agora nascem em tiles de oceano sorteados.
 - 2026-03-30: testes atualizados para não dependerem do layout antigo do tabuleiro; cenarios que exigem biomas especificos agora fixam os tiles relevantes explicitamente.
 - Validacao: `npm test -- src/tests/TurnGameScene.test.ts` passou com 26 testes.
+
+- 2026-04-07: pedido atual: ajustar a enciclopédia e o README com base no funcionamento atual do jogo, deixando o objetivo mais claro. Contexto encontrado: mapa hexagonal 6x6, uma colônia inicial, exploração automática, custo de adaptação por biomassa e Seleção Natural no fim do turno.
+- 2026-04-07: enciclopédia atualizada em `src/game/turns/TurnHUD.ts` para explicar vitória, derrota, estratégia prática, custo de adaptação e expansão imediata. README atualizado para refletir mapa 6x6, uma colônia inicial, exploração automática e custo de adaptação. Validação: `npx tsc --noEmit` e `npm run build` passaram.

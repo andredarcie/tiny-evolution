@@ -287,14 +287,41 @@
 }
 
 .floating-menu-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 4px 4px 6px;
+  border-bottom: 1px solid var(--ui-border);
+  margin-bottom: 2px;
+}
+
+.floating-menu-title-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.floating-menu-title-col #floating-menu-title-text {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ui-text-muted);
-  border-bottom: 1px solid var(--ui-border);
-  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.floating-menu-group {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ui-text-muted);
+  opacity: 0.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .floating-action-row {

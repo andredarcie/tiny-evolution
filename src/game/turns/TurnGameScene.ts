@@ -56,7 +56,6 @@ const MIN_OCEAN_TILES = 7;
 const MIN_COAST_TILES = 5;
 const MIN_LAND_TILES = 7;
 const SEED_COST = 4;
-const HUMAN_PATH_PRIORITY_CHANCE = 0.8;
 const TICK_INTERVAL = 180;
 const MIN_PARALLEL_HUMAN_PATHS_FOR_BRANCHING = 2;
 
@@ -963,7 +962,7 @@ export class TurnGameScene {
     this.terminalInfoLead = `${name} chegou ao fim da própria linha evolutiva nesta campanha. A partir daqui, essa colônia não serve mais para avançar rumo ao Homo sapiens, mas passa a atuar como um polo estável de sustentação ecológica.`;
     this.terminalInfoBenefits = [
       'ela deixa de perder biomassa passiva na Selecao Natural',
-      'cada colônia adjacente em cima, baixo, esquerda ou direita recebe +1 biomassa',
+      'cada colônia em tile hexagonal vizinho recebe +1 biomassa',
       'esse suporte aparece visualmente como +1 durante a fase automática',
       'se você preferir, ainda pode decompor essa colônia para liberar o tile',
     ];
@@ -1136,15 +1135,6 @@ export class TurnGameScene {
       ctx.font = `600 ${Math.floor(this.cellSize * 0.18)}px system-ui, sans-serif`;
       ctx.fillStyle = WORLD_COLORS.badgeText;
       ctx.fillText(formatBiomass(colony.biomass), centerX, badgeY + 0.5);
-
-      const def = EVOLUTION_BY_ID.get(colony.lifeFormId);
-      const tileEnergy = this.tileEnergy[colony.y][colony.x];
-      const income = tileEnergy * (def ? GROUP_ENERGY_MULTIPLIER[def.group] : 1);
-      if (income > 0) {
-        ctx.font = `700 ${Math.floor(this.cellSize * 0.15)}px system-ui, sans-serif`;
-        ctx.fillStyle = 'rgba(60, 140, 60, 0.9)';
-        ctx.fillText(`+${income}`, centerX, badgeY + this.cellSize * 0.18);
-      }
 
       if (colony.coastAdapted || colony.landAdapted) {
         ctx.beginPath();
@@ -1754,6 +1744,13 @@ export class TurnGameScene {
       floatingMenuSide: floatingAnchor?.side ?? 'right',
       floatingCancelVisible: isPlayerPhase && !this.gameWon && (this.mode === 'expand' || this.mode === 'seed'),
       selectedColonyName: selected ? this.getColonyName(selected) : '',
+      selectedColonyGroup: (() => {
+        if (!selected) return '';
+        const def = EVOLUTION_BY_ID.get(selected.lifeFormId);
+        if (!def) return '';
+        const m = GROUP_ENERGY_MULTIPLIER[def.group];
+        return `${def.group} ×${m}`;
+      })(),
       selectedColonyDef: selected ? (EVOLUTION_BY_ID.get(selected.lifeFormId) ?? null) : null,
       phaseBannerTitle: '',
       phaseBannerDetail: '',
@@ -1947,11 +1944,10 @@ export class TurnGameScene {
     const currentDistance = getEvolutionDistanceToTarget(colony.lifeFormId, HUMAN_EVOLUTION_ID) ?? Number.POSITIVE_INFINITY;
     const canBranchAwayFromHumanPath =
       this.getHumanReachableColonyCount(colony.id, currentDistance) >= MIN_PARALLEL_HUMAN_PATHS_FOR_BRANCHING;
+    // Always show the human-path evolution in the HUD — random branching only happens on actual adapt
     let chosen =
       canBranchAwayFromHumanPath && humanPathAvailable.length > 0 && alternateAvailable.length > 0
-        ? (random() < HUMAN_PATH_PRIORITY_CHANCE
-            ? choosePreferredEvolutionStep(humanPathAvailable, existingForms)
-            : choosePreferredEvolutionStep(alternateAvailable, existingForms))
+        ? choosePreferredEvolutionStep(humanPathAvailable, existingForms)
         : null;
 
     if (!chosen) {

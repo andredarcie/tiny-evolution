@@ -37,11 +37,12 @@ const ACTION_HELP_CONTENT: Record<'adapt' | 'expand', ActionHelpContent> = {
   adapt: {
     title: 'Adaptar',
     kicker: 'salto evolutivo',
-    summary: 'A colônia tenta evoluir para a próxima forma compatível com o bioma e com a população atual.',
+    summary: 'A colônia tenta evoluir para a próxima forma compatível com o bioma, a população atual e a biomassa local disponível.',
     rules: [
       'Consome 1 ponto de adaptação da colônia e sua ação do turno.',
       'Só funciona se o bioma atual for compatível com a próxima etapa evolutiva.',
       'Algumas formas exigem população mínima antes da evolução acontecer.',
+      'Também exige biomassa local suficiente: o custo cresce com a energia do tile e com o multiplicador do grupo biológico de destino.',
       'Adaptar a linhagem certa no bioma certo é o que empurra a campanha rumo ao Homo sapiens.',
     ],
     biology: 'Adaptação biológica não é escolha consciente, mas o jogo traduz esse processo em uma decisão estratégica. Em termos científicos, populações acumulam características vantajosas quando pressões ambientais favorecem variantes mais aptas a sobreviver e reproduzir.',
@@ -53,6 +54,7 @@ const ACTION_HELP_CONTENT: Record<'adapt' | 'expand', ActionHelpContent> = {
     rules: [
       'Gasta 1 biomassa local da colônia de origem.',
       'A nova colônia nasce em um tile vizinho permitido para a forma de vida atual.',
+      'A nova colônia já entra estável com 1 população e 1 biomassa, sem espera extra na versão atual.',
       'A expansão abre caminhos para alcançar outros biomas e novas etapas evolutivas.',
       'Espalhar linhagens reduz o risco de perder todo o progresso em uma única colônia.',
     ],
@@ -70,11 +72,19 @@ const ENCYCLOPEDIA_TOPICS: EncyclopediaTopic[] = [
     label: 'Objetivo',
     kicker: 'visão geral',
     title: 'Objetivo do jogo',
-    summary: 'O objetivo é conduzir uma linhagem ancestral desde a vida microbiana oceânica até Homo sapiens, sem perder o caminho evolutivo principal no meio do processo.',
+    summary: 'O objetivo é fazer pelo menos uma colônia evoluir de Bactéria Primitiva até Homo sapiens. A campanha termina em derrota se todas as colônias morrem ou se nenhuma colônia viva ainda consegue chegar à linhagem humana.',
     sections: [
       {
-        heading: 'Como vencer nas regras do jogo',
-        body: 'Você vence ao fazer uma colônia alcançar Homo sapiens. Para isso, precisa manter colônias vivas, gerar biomassa suficiente para explorar e expandir, adaptar a linhagem no bioma correto e evitar que a Seleção Natural elimine todos os ramos que ainda conseguem chegar ao destino final.',
+        heading: 'Como vencer',
+        body: 'Selecione uma colônia que ainda esteja em uma rota até Homo sapiens e avance etapa por etapa. Cada adaptação precisa do bioma correto, da população mínima, de 1 ponto de adaptação e de biomassa local suficiente para pagar o custo mostrado no botão Adaptar.',
+      },
+      {
+        heading: 'O que pode fazer você perder',
+        body: 'Você perde se a Seleção Natural, falta de biomassa, isolamento ou escolhas de ramificação eliminarem todas as colônias. Também perde se sobrarem colônias vivas, mas todas estiverem em ramos terminais ou em ramos que não alcançam Homo sapiens.',
+      },
+      {
+        heading: 'Estratégia prática',
+        body: 'Use exploração automática para produzir nutrientes e população quando uma colônia ficar sem outra ordem, expanda para alcançar costa e terra, semeie novas bactérias quando tiver biomassa total sobrando e mantenha mais de uma linhagem viável para não depender de um único ramo humano.',
       },
       {
         heading: 'Por que esse objetivo faz sentido cientificamente',
@@ -206,7 +216,7 @@ const ENCYCLOPEDIA_TOPICS: EncyclopediaTopic[] = [
     label: 'Grupos biológicos',
     kicker: 'classificação da vida',
     title: 'Grupos biológicos',
-    summary: 'Os seres vivos do jogo estão organizados em 10 grupos baseados na classificação biológica atual. Cada grupo tem um multiplicador de energia: ao explorar um tile, a biomassa gerada é a energia do tile multiplicada pelo valor do grupo.',
+    summary: 'Os seres vivos do jogo estão organizados em 10 grupos baseados na classificação biológica atual. Cada grupo tem um multiplicador de energia: ao explorar um tile, a biomassa gerada é a energia do tile multiplicada pelo valor do grupo. Esse mesmo multiplicador também pesa no custo de adaptação para formas de vida mais complexas.',
     sections: [
       {
         heading: '🦠 Procariontes',
@@ -307,6 +317,7 @@ export interface TurnHUDState {
   floatingMenuSide: 'left' | 'right';
   floatingCancelVisible: boolean;
   selectedColonyName: string;
+  selectedColonyGroup: string;
   selectedColonyDef: EvolutionDefinition | null;
   phaseBannerTitle: string;
   phaseBannerDetail: string;
@@ -420,7 +431,10 @@ export class TurnHUD {
 
       <div class="floating-action-menu floating-right hidden" id="floating-action-menu">
         <div class="floating-menu-title" id="floating-menu-title">
-          <span id="floating-menu-title-text"></span>
+          <div class="floating-menu-title-col">
+            <span id="floating-menu-title-text"></span>
+            <span class="floating-menu-group" id="floating-menu-group"></span>
+          </div>
           <button class="floating-info-btn" id="floating-info-btn" aria-label="Curiosidades científicas">ⓘ</button>
         </div>
         <div class="floating-action-row">
@@ -435,8 +449,8 @@ export class TurnHUD {
         <div class="floating-action-row">
           <button id="floating-expand">
             <span class="action-icon icon-expand" aria-hidden="true"></span>
-            <span>Expandir</span>
-            <kbd class="action-kbd">E</kbd>
+            <span class="adapt-label">Expandir</span>
+            <span class="adapt-price-pill">1 🌿</span>
           </button>
           <button class="floating-inline-info-btn" id="floating-expand-info" aria-label="Saiba mais sobre expandir">ⓘ</button>
         </div>
@@ -790,6 +804,8 @@ export class TurnHUD {
     if (infoBtn) infoBtn.style.display = state.selectedColonyDef?.description ? '' : 'none';
     const titleTextEl = this.root.querySelector('#floating-menu-title-text');
     if (titleTextEl) titleTextEl.textContent = state.selectedColonyName;
+    const groupEl = this.root.querySelector('#floating-menu-group');
+    if (groupEl) groupEl.textContent = state.selectedColonyGroup;
     this.floatingMenuEl.classList.toggle('hidden', !state.floatingMenuVisible);
     this.floatingMenuEl.classList.toggle('floating-left', state.floatingMenuSide === 'left');
     this.floatingMenuEl.classList.toggle('floating-right', state.floatingMenuSide === 'right');

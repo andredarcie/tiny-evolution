@@ -4,20 +4,22 @@ Simulador de evolução biológica com interface em português brasileiro (pt-BR
 
 ## Regras atuais do jogo
 
-O jogo roda em um `canvas` e usa uma cena principal por turnos em um mapa `8x8` com três biomas: `oceano`, `costa` e `terra`. O mapa é gerado aleatoriamente, mas sempre tenta manter uma transição viável entre mar, litoral e interior.
+O jogo roda em um `canvas` e usa uma cena principal por turnos em um mapa hexagonal `6x6` com três biomas: `oceano`, `costa` e `terra`. O mapa é gerado aleatoriamente, mas sempre mantém variedade mínima de biomas e adjacências viáveis entre mar, litoral e interior.
 
 ### Objetivo
 
-O objetivo da campanha é conduzir pelo menos uma linhagem evolutiva até `Homo sapiens`.
+O objetivo da campanha é fazer pelo menos uma colônia evoluir de `Bactéria Primitiva` até `Homo sapiens`.
 
-Você vence quando uma colônia adapta para `Homo sapiens`. Você perde em dois casos:
+Na prática, vencer significa manter uma linhagem viva em uma rota humana, juntar biomassa local suficiente, posicioná-la no bioma certo e adaptar etapa por etapa até `Homo sapiens`. A partida termina em derrota em dois casos:
 
 - quando todas as colônias são extintas;
-- quando ainda existem colônias vivas, mas nenhuma pertence mais a um ramo capaz de chegar ao humano.
+- quando ainda existem colônias vivas, mas nenhuma pertence mais a um ramo capaz de chegar a `Homo sapiens`.
+
+Isso torna expansão e redundância importantes: depender de uma única colônia pode perder a campanha se a Seleção Natural ou uma ramificação sem saída eliminar a última rota humana.
 
 ### Início da partida
 
-A partida começa com `3` colônias de `Bactéria Primitiva`, todas no oceano. Cada colônia inicial começa com:
+A partida começa com `1` colônia de `Bactéria Primitiva` em um tile de oceano com nutrientes, quando possível. A colônia inicial começa com:
 
 - `2` de população;
 - `2` de biomassa local;
@@ -46,15 +48,15 @@ Isso significa que o posicionamento no tabuleiro é parte central da progressão
 
 ### Ações do jogador
 
-#### Consolidar
+#### Explorar automaticamente
 
-Ativa o modo de consolidação automática para a colônia selecionada. Quando o turno termina, se essa colônia ainda puder agir, ela consome sua ação automaticamente e recebe:
+Se uma colônia pronta para agir chega ao fim do turno sem outra ordem, ela entra em exploração automática. Quando a exploração é resolvida, a colônia consome sua ação e recebe:
 
-- `+2` biomassa local;
+- biomassa local igual à energia do tile multiplicada pelo grupo biológico da colônia;
 - `+1` população;
 - fortificação temporária contra isolamento naquele ciclo.
 
-A consolidação automática continua ativa nos turnos seguintes até o jogador desligá-la.
+Na produção ecológica do mesmo fim de turno, colônias não terminais estabelecidas também recebem biomassa pelo tile (`mínimo +1`) e `+1` ponto de adaptação. Na prática, colônias deixadas sem ordem tendem a gerar recursos para preparar adaptações futuras.
 
 #### Adaptar
 
@@ -65,12 +67,15 @@ Para adaptar, a colônia precisa:
 - ainda ter adaptação disponível;
 - estar em um bioma compatível com a próxima etapa;
 - cumprir a população mínima da transição.
+- ter biomassa local suficiente para pagar o custo de adaptação.
+
+O custo de adaptação é calculado a partir da energia do tile e do multiplicador do grupo biológico de destino. Formas mais complexas tendem a exigir mais biomassa, então explorar antes de adaptar faz parte do planejamento.
 
 O jogo não deixa o jogador escolher livremente qualquer ramo da árvore. Quando existem vários caminhos possíveis, o sistema prioriza automaticamente ramos que ainda preservam uma rota até `Homo sapiens`.
 
 #### Expandir
 
-Cria uma nova colônia em um tile ortogonal adjacente válido.
+Cria uma nova colônia em um tile hexagonal vizinho válido.
 
 Regras da expansão:
 
@@ -114,8 +119,8 @@ Essas colônias deixam de servir para avançar rumo ao humano, mas passam a ter 
 
 Quando o jogador encerra o turno, o jogo resolve nesta ordem:
 
-1. ordens automáticas de consolidação;
-2. recompensa imediata das colônias consolidadas;
+1. ordens automáticas de exploração;
+2. recompensa imediata das colônias em exploração;
 3. produção ecológica do turno;
 4. atualização do estágio global da vida;
 5. fase automática de `Seleção Natural`.
@@ -123,6 +128,7 @@ Quando o jogador encerra o turno, o jogo resolve nesta ordem:
 Durante a produção ecológica:
 
 - toda colônia estabelecida recebe `+1` ponto de adaptação;
+- toda colônia não terminal estabelecida recebe biomassa do tile (`mínimo +1`);
 - colônias terminais distribuem adaptação extra para vizinhas não terminais.
 
 ### Seleção Natural
