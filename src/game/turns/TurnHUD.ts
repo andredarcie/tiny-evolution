@@ -820,6 +820,64 @@ export class TurnHUD {
 
   }
 
+  getBiomassTargetCenter(): { x: number; y: number } | null {
+    const card = this.root.querySelector('.hud-stat-biomass');
+    if (!card) return null;
+
+    const rect = card.getBoundingClientRect();
+    return {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    };
+  }
+
+  launchBiomassOrb(start: { x: number; y: number }, onArrive: () => void): void {
+    const target = this.getBiomassTargetCenter();
+    if (!target) {
+      onArrive();
+      return;
+    }
+
+    const orb = document.createElement('div');
+    orb.className = 'biomass-orb';
+    orb.style.left = `${start.x}px`;
+    orb.style.top = `${start.y}px`;
+    this.root.appendChild(orb);
+
+    const arcLift = Math.max(28, Math.abs(target.y - start.y) * 0.18);
+    const animation = orb.animate(
+      [
+        { transform: 'translate(-50%, -50%) scale(0.72)', opacity: 0.15 },
+        {
+          transform: `translate(${(target.x - start.x) * 0.48}px, ${(target.y - start.y) * 0.48 - arcLift}px) translate(-50%, -50%) scale(1.12)`,
+          opacity: 1,
+        },
+        {
+          transform: `translate(${target.x - start.x}px, ${target.y - start.y}px) translate(-50%, -50%) scale(0.54)`,
+          opacity: 0.15,
+        },
+      ],
+      {
+        duration: 620,
+        easing: 'cubic-bezier(0.18, 0.82, 0.25, 1)',
+        fill: 'forwards',
+      },
+    );
+
+    animation.onfinish = () => {
+      orb.remove();
+      onArrive();
+    };
+    animation.oncancel = () => {
+      orb.remove();
+      onArrive();
+    };
+  }
+
+  clearBiomassOrbs(): void {
+    this.root.querySelectorAll('.biomass-orb').forEach((orb) => orb.remove());
+  }
+
   private openColonyInfo(def: EvolutionDefinition): void {
     const nameEl = this.root.querySelector('#colony-info-name')!;
     const eraEl = this.root.querySelector('#colony-info-era')!;

@@ -80,6 +80,9 @@ const WORLD_COLORS = {
   extinctionStroke: 'rgba(184, 90, 70, 0.95)',
   biomassGain: '#72b36a',
   biomassLoss: '#f3d36b',
+  terminalSupportAura: 'rgba(114, 179, 106, 0.16)',
+  terminalSupportStroke: 'rgba(114, 179, 106, 0.62)',
+  terminalSupportText: 'rgba(247, 241, 232, 0.92)',
   energyPip: 'rgba(255, 255, 255, 0.45)',
 } as const;
 
@@ -443,6 +446,8 @@ export class TurnGameScene {
   private milestoneNotificationTitle = '';
   private milestoneNotificationRead = false;
   private readonly floatingDeltas: FloatingDelta[] = [];
+  private displayedBiomassPool = 0;
+  private biomassAnimationGeneration = 0;
   private biomassDeltaBatch: Map<number, { amount: number; label?: string }> | null = null;
   private readonly extinctionBursts: ExtinctionBurst[] = [];
   private gameOverTitle = '';
@@ -467,6 +472,7 @@ export class TurnGameScene {
     this.terrain = terrain;
     this.tileEnergy = tileEnergy;
     const openingColony = this.seedOpeningColonies();
+    this.displayedBiomassPool = this.getBiomassPool();
     this.startTurn();
     this.selectedColonyId = openingColony.id;
     this.queueReachedMilestones();
@@ -505,6 +511,8 @@ export class TurnGameScene {
     this.milestoneNotificationTitle = '';
     this.milestoneNotificationRead = false;
     this.floatingDeltas.length = 0;
+    this.biomassAnimationGeneration += 1;
+    this.hud.clearBiomassOrbs?.();
     this.biomassDeltaBatch = null;
     this.extinctionBursts.length = 0;
     this.gameOverTitle = '';
@@ -516,6 +524,7 @@ export class TurnGameScene {
     this.terrain = terrain;
     this.tileEnergy = tileEnergy;
     const openingColony = this.seedOpeningColonies();
+    this.displayedBiomassPool = this.getBiomassPool();
     this.startTurn();
     this.selectedColonyId = openingColony.id;
     this.queueReachedMilestones();
@@ -1102,6 +1111,64 @@ export class TurnGameScene {
         this.strokeHexCell(ctx, centerX, centerY, this.hexRadius);
       }
     }
+
+    this.drawTerminalSupportAuras(ctx);
+  }
+
+  private drawTerminalSupportAuras(ctx: CanvasRenderingContext2D): void {
+    ctx.save();
+    for (const colony of this.colonies.values()) {
+      if (!this.isColonyEstablished(colony) || !this.isTerminalColony(colony)) continue;
+
+      const { x: centerX, y: centerY } = this.getCellCenter(colony.x, colony.y);
+      ctx.fillStyle = WORLD_COLORS.terminalSupportAura;
+      ctx.strokeStyle = WORLD_COLORS.terminalSupportStroke;
+      ctx.lineWidth = 1.5;
+      this.drawHexCell(ctx, centerX, centerY);
+      this.strokeHexCell(ctx, centerX, centerY, Math.max(0, this.hexRadius - 4));
+    }
+    ctx.restore();
+  }
+
+  private getTerminalSupportCounts(): Map<number, number> {
+    const supportCounts = new Map<number, number>();
+    for (const colony of this.colonies.values()) {
+      if (!this.isColonyEstablished(colony) || !this.isTerminalColony(colony)) continue;
+      for (const neighbor of this.getNeighborColonies(colony)) {
+        if (!this.isColonyEstablished(neighbor)) continue;
+        supportCounts.set(neighbor.id, (supportCounts.get(neighbor.id) ?? 0) + 1);
+      }
+    }
+    return supportCounts;
+  }
+
+  private drawTerminalSupportBadges(ctx: CanvasRenderingContext2D): void {
+    const supportCounts = this.getTerminalSupportCounts();
+    if (supportCounts.size === 0) return;
+
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `700 ${Math.floor(this.cellSize * 0.16)}px system-ui, sans-serif`;
+    for (const [colonyId, supportCount] of supportCounts) {
+      const colony = this.colonies.get(colonyId);
+      if (!colony) continue;
+
+      const { x: centerX, y: centerY } = this.getCellCenter(colony.x, colony.y);
+      const markerX = centerX + this.cellSize * 0.22;
+      const markerY = centerY - this.cellSize * 0.34;
+      const markerRadius = this.cellSize * 0.13;
+      const label = `+${supportCount}`;
+
+      ctx.fillStyle = WORLD_COLORS.terminalSupportStroke;
+      ctx.beginPath();
+      ctx.arc(markerX, markerY, markerRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = WORLD_COLORS.terminalSupportText;
+      ctx.fillText(label, markerX, markerY + 0.5);
+    }
+    ctx.restore();
   }
 
   private drawColonies(ctx: CanvasRenderingContext2D): void {
@@ -1167,6 +1234,7 @@ export class TurnGameScene {
 
     }
 
+    this.drawTerminalSupportBadges(ctx);
     this.drawFloatingDeltas(ctx);
   }
 
@@ -1195,6 +1263,24 @@ export class TurnGameScene {
     });
   }
 
+  private spawnBiomassOrb(colonyId: number, amount: number): void {
+    if (amount <= 0) return;
+    const colony = this.colonies.get(colonyId);
+    if (!colony) return;
+
+    const start = this.getCellCenter(colony.x, colony.y);
+    const generation = this.biomassAnimationGeneration;
+    if (!this.hud.launchBiomassOrb) {
+      this.displayedBiomassPool += amount;
+      return;
+    }
+
+    this.hud.launchBiomassOrb(start, () => {
+      if (generation !== this.biomassAnimationGeneration) return;
+      this.displayedBiomassPool += amount;
+    });
+  }
+
   private beginBiomassDeltaBatch(): void {
     this.biomassDeltaBatch = new Map();
   }
@@ -1204,6 +1290,11 @@ export class TurnGameScene {
     if (!this.biomassDeltaBatch) {
       const text = label ?? `${amount > 0 ? '+' : ''}${formatBiomass(amount)}`;
       this.spawnFloatingDelta(colonyId, text, amount > 0 ? WORLD_COLORS.biomassGain : WORLD_COLORS.biomassLoss);
+      if (amount > 0) {
+        this.spawnBiomassOrb(colonyId, amount);
+      } else {
+        this.displayedBiomassPool = Math.max(0, this.displayedBiomassPool + amount);
+      }
       return;
     }
 
@@ -1223,6 +1314,11 @@ export class TurnGameScene {
       if (entry.amount === 0 || !this.colonies.has(colonyId)) continue;
       const text = entry.label ?? `${entry.amount > 0 ? '+' : ''}${formatBiomass(entry.amount)}`;
       this.spawnFloatingDelta(colonyId, text, entry.amount > 0 ? WORLD_COLORS.biomassGain : WORLD_COLORS.biomassLoss);
+      if (entry.amount > 0) {
+        this.spawnBiomassOrb(colonyId, entry.amount);
+      } else {
+        this.displayedBiomassPool = Math.max(0, this.displayedBiomassPool + entry.amount);
+      }
     }
   }
 
@@ -1721,7 +1817,7 @@ export class TurnGameScene {
 
     this.hud.update({
       actionPoints: this.actionPoints,
-      biomass: this.getBiomassPool(),
+      biomass: this.displayedBiomassPool,
       adaptation: selected?.adaptationPoints ?? this.getTotalAdaptationPoints(),
       stageLabel: `${leadEvolution.emoji} ${'name' in leadEvolution ? leadEvolution.name : leadEvolution.label.replace(/^.\s*/, '')}`,
       objective,

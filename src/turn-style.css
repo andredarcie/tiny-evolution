@@ -47,6 +47,20 @@
   font-family: Inter, system-ui, sans-serif;
 }
 
+.biomass-orb {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: #72b36a;
+  box-shadow:
+    0 0 0 5px rgba(114, 179, 106, 0.16),
+    0 0 18px rgba(114, 179, 106, 0.55);
+  z-index: 80;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
 /* ── Topbar (compact on mobile) ────────────────────────────────────────── */
 
 .hud-topbar {
