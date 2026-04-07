@@ -12,6 +12,15 @@ import {
 
 type ActionMode = 'idle' | 'expand' | 'seed';
 
+// Cost = 5 turns of post-evolution exploration income: round(T × tileEnergy × M_target)
+// tileEnergy is the actual energy shown on the tile (the dots), not a biome average.
+const ADAPT_PAYBACK_TURNS = 20;
+
+function getAdaptCost(nextEvolution: EvolutionDefinition, tileEnergy: number): number {
+  const M = GROUP_ENERGY_MULTIPLIER[nextEvolution.group];
+  return Math.max(1, Math.round(ADAPT_PAYBACK_TURNS * tileEnergy * M));
+}
+
 interface LifeMilestone {
   id: string;
   triggerLifeFormId: string;
@@ -658,6 +667,16 @@ export class TurnGameScene {
       return;
     }
 
+    const cost = getAdaptCost(nextEvolution, this.tileEnergy[colony.y][colony.x]);
+    if (colony.biomass < cost) {
+      this.pushLog(`Biomassa insuficiente para adaptar (precisa de ${cost}, tem ${colony.biomass}).`);
+      this.mode = 'idle';
+      this.updateHUD();
+      return;
+    }
+
+    colony.biomass -= cost;
+    this.recordBiomassDelta(colony.id, -cost);
     colony.lifeFormId = nextEvolution.id;
     this.syncColonyTraversal(colony);
     colony.autoExplore = false;
@@ -1673,7 +1692,8 @@ export class TurnGameScene {
     const objective = nextEvolution ? `Evolua para ${nextEvolution.name}` : 'Vitória';
     const objectiveDetail = this.buildObjectiveDetail(selected);
     const isPlayerPhase = !this.gameOver;
-    const canAdapt = isPlayerPhase && !this.gameWon && selected !== null && this.canColonyAct(selected) && selected.adaptationPoints > 0 && this.canSelectedAdapt();
+    const adaptCost = (selected && nextEvolution) ? getAdaptCost(nextEvolution, this.tileEnergy[selected.y][selected.x]) : 0;
+    const canAdapt = isPlayerPhase && !this.gameWon && selected !== null && this.canColonyAct(selected) && selected.adaptationPoints > 0 && this.canSelectedAdapt() && selected.biomass >= adaptCost;
     const adaptBlockedReason = canAdapt ? '' : this.getAdaptBlockedReason(selected);
     const canExpand = isPlayerPhase && !this.gameWon && this.hasExpandTarget(selected);
     const canDecompose = isPlayerPhase && !this.gameWon && selected !== null && this.isColonyEstablished(selected) && this.isTerminalColony(selected);
@@ -1692,6 +1712,7 @@ export class TurnGameScene {
       progress: (this.stageIndex / (STAGES.length - 1)) * 100,
       logLines: this.logLines,
       canAdapt,
+      adaptCost,
       adaptBlockedReason,
       canExpand,
       canDecompose,
@@ -1754,6 +1775,14 @@ export class TurnGameScene {
     const minPopulation = Math.min(...biomeMatches.map((step) => step.minPopulation));
     if (colony.population < minPopulation) {
       return `Precisa de população ${minPopulation}.`;
+    }
+
+    const nextEvo = this.getNextEvolutionFor(colony);
+    if (nextEvo) {
+      const cost = getAdaptCost(nextEvo, this.tileEnergy[colony.y][colony.x]);
+      if (colony.biomass < cost) {
+        return `Biomassa insuficiente: precisa de ${cost}, tem ${colony.biomass}.`;
+      }
     }
 
     return 'Não é possível adaptar agora.';

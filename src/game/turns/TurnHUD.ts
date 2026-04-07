@@ -295,6 +295,7 @@ export interface TurnHUDState {
   progress: number;
   logLines: string[];
   canAdapt: boolean;
+  adaptCost: number;
   adaptBlockedReason: string;
   canExpand: boolean;
   canDecompose: boolean;
@@ -355,6 +356,7 @@ export class TurnHUD {
   private floatingMenuEl: HTMLElement;
   private floatingCancelEl: HTMLElement;
   private floatingAdaptBtn: HTMLButtonElement;
+  private floatingAdaptCostEl: HTMLElement;
   private floatingAdaptReasonEl: HTMLElement;
   private floatingExpandBtn: HTMLButtonElement;
   private floatingDecomposeBtn: HTMLButtonElement;
@@ -422,8 +424,8 @@ export class TurnHUD {
         <div class="floating-action-row">
           <button id="floating-adapt">
             <span class="action-icon icon-adapt" aria-hidden="true"></span>
-            <span>Adaptar</span>
-            <kbd class="action-kbd">A</kbd>
+            <span class="adapt-label">Evoluir</span>
+            <span class="adapt-price-pill" id="floating-adapt-cost"></span>
           </button>
           <button class="floating-inline-info-btn" id="floating-adapt-info" aria-label="Saiba mais sobre adaptar">ⓘ</button>
         </div>
@@ -655,6 +657,7 @@ export class TurnHUD {
     this.floatingMenuEl = this.root.querySelector('#floating-action-menu')!;
     this.floatingCancelEl = this.root.querySelector('#floating-cancel-menu')!;
     this.floatingAdaptBtn = this.root.querySelector('#floating-adapt')!;
+    this.floatingAdaptCostEl = this.root.querySelector('#floating-adapt-cost')!;
     this.floatingAdaptReasonEl = this.root.querySelector('#floating-adapt-reason')!;
     this.floatingExpandBtn = this.root.querySelector('#floating-expand')!;
     this.floatingDecomposeBtn = this.root.querySelector('#floating-decompose')!;
@@ -768,6 +771,7 @@ export class TurnHUD {
     this.seedBtn.disabled = !state.canSeed;
     this.seedBtn.style.display = state.canSeed ? '' : 'none';
     this.floatingAdaptBtn.disabled = !state.canAdapt;
+    this.floatingAdaptCostEl.textContent = state.adaptCost > 0 ? `${state.adaptCost} 🌿` : '';
     this.floatingAdaptReasonEl.textContent = state.adaptBlockedReason;
     this.floatingAdaptReasonEl.classList.toggle('hidden', state.canAdapt || !state.adaptBlockedReason);
     this.floatingExpandBtn.disabled = !state.canExpand;
