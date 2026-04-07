@@ -444,7 +444,7 @@ export class TurnGameScene {
   private milestoneNotificationTitle = '';
   private milestoneNotificationRead = false;
   private readonly floatingDeltas: FloatingDelta[] = [];
-  private biomassDeltaBatch: Map<number, number> | null = null;
+  private biomassDeltaBatch: Map<number, { amount: number; label?: string }> | null = null;
   private readonly extinctionBursts: ExtinctionBurst[] = [];
   private gameOverTitle = '';
   private gameOverQuote = '';
@@ -939,7 +939,8 @@ export class TurnGameScene {
     const multiplier = def ? GROUP_ENERGY_MULTIPLIER[def.group] : 1;
     const gained = energy * multiplier;
     colony.biomass += gained;
-    this.recordBiomassDelta(colony.id, gained);
+    const label = multiplier > 1 ? `${multiplier}x +${energy}` : `+${energy}`;
+    this.recordBiomassDelta(colony.id, gained, label);
     colony.population += 1;
     colony.fortified = true;
     this.pushLog(`Exploração em ${this.formatCellLabel(colony.x, colony.y)}: +${formatBiomass(gained)} nutrientes e +1 população.`);
@@ -1049,7 +1050,7 @@ export class TurnGameScene {
           ctx.fillStyle = WORLD_COLORS.energyPip;
           const pipRadius = this.cellSize * 0.05;
           const spacing = this.cellSize * 0.12;
-          const pipY = centerY - this.hexRadius * 0.55; // Move para o topo do hexágono
+          const pipY = centerY - this.hexRadius * 0.55;
           if (energy === 1) {
             ctx.beginPath();
             ctx.arc(centerX, pipY, pipRadius, 0, Math.PI * 2);
@@ -1136,6 +1137,15 @@ export class TurnGameScene {
       ctx.fillStyle = WORLD_COLORS.badgeText;
       ctx.fillText(formatBiomass(colony.biomass), centerX, badgeY + 0.5);
 
+      const def = EVOLUTION_BY_ID.get(colony.lifeFormId);
+      const tileEnergy = this.tileEnergy[colony.y][colony.x];
+      const income = tileEnergy * (def ? GROUP_ENERGY_MULTIPLIER[def.group] : 1);
+      if (income > 0) {
+        ctx.font = `700 ${Math.floor(this.cellSize * 0.15)}px system-ui, sans-serif`;
+        ctx.fillStyle = 'rgba(60, 140, 60, 0.9)';
+        ctx.fillText(`+${income}`, centerX, badgeY + this.cellSize * 0.18);
+      }
+
       if (colony.coastAdapted || colony.landAdapted) {
         ctx.beginPath();
         ctx.fillStyle = colony.landAdapted ? WORLD_COLORS.adaptationReady : WORLD_COLORS.adaptationSpent;
@@ -1199,18 +1209,19 @@ export class TurnGameScene {
     this.biomassDeltaBatch = new Map();
   }
 
-  private recordBiomassDelta(colonyId: number, amount: number): void {
+  private recordBiomassDelta(colonyId: number, amount: number, label?: string): void {
     if (amount === 0) return;
     if (!this.biomassDeltaBatch) {
-      this.spawnFloatingDelta(
-        colonyId,
-        `${amount > 0 ? '+' : ''}${formatBiomass(amount)}`,
-        amount > 0 ? WORLD_COLORS.biomassGain : WORLD_COLORS.biomassLoss,
-      );
+      const text = label ?? `${amount > 0 ? '+' : ''}${formatBiomass(amount)}`;
+      this.spawnFloatingDelta(colonyId, text, amount > 0 ? WORLD_COLORS.biomassGain : WORLD_COLORS.biomassLoss);
       return;
     }
 
-    this.biomassDeltaBatch.set(colonyId, (this.biomassDeltaBatch.get(colonyId) ?? 0) + amount);
+    const prev = this.biomassDeltaBatch.get(colonyId);
+    this.biomassDeltaBatch.set(colonyId, {
+      amount: (prev?.amount ?? 0) + amount,
+      label: label ?? prev?.label,
+    });
   }
 
   private flushBiomassDeltaBatch(): void {
@@ -1218,13 +1229,10 @@ export class TurnGameScene {
     this.biomassDeltaBatch = null;
     if (!batch) return;
 
-    for (const [colonyId, amount] of batch) {
-      if (amount === 0 || !this.colonies.has(colonyId)) continue;
-      this.spawnFloatingDelta(
-        colonyId,
-        `${amount > 0 ? '+' : ''}${formatBiomass(amount)}`,
-        amount > 0 ? WORLD_COLORS.biomassGain : WORLD_COLORS.biomassLoss,
-      );
+    for (const [colonyId, entry] of batch) {
+      if (entry.amount === 0 || !this.colonies.has(colonyId)) continue;
+      const text = entry.label ?? `${entry.amount > 0 ? '+' : ''}${formatBiomass(entry.amount)}`;
+      this.spawnFloatingDelta(colonyId, text, entry.amount > 0 ? WORLD_COLORS.biomassGain : WORLD_COLORS.biomassLoss);
     }
   }
 
@@ -1245,14 +1253,36 @@ export class TurnGameScene {
         const centerY = centerYBase + this.cellSize * (0.05 - progress * 0.5);
 
         ctx.globalAlpha = Math.max(0, Math.min(1, delta.framesLeft / 25));
-        
-        // Adiciona um contorno branco para contraste
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 4;
-        ctx.strokeText(delta.text, centerX, centerY);
-        
-        ctx.fillStyle = delta.color;
-        ctx.fillText(delta.text, centerX, centerY);
+
+        // Split "Nx +E" into multiplier and value parts
+        const multMatch = delta.text.match(/^(\d+x)\s+(\+\d+)$/);
+        if (multMatch) {
+          const multPart  = multMatch[1] + ' '; // e.g. "3x "
+          const valuePart = multMatch[2];        // e.g. "+2"
+          const multW  = ctx.measureText(multPart).width;
+          const valueW = ctx.measureText(valuePart).width;
+          const totalW = multW + valueW;
+          const startX = centerX - totalW / 2;
+
+          ctx.textAlign = 'left';
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 4;
+          ctx.strokeText(multPart + valuePart, startX, centerY);
+
+          ctx.fillStyle = 'rgba(220, 170, 60, 0.95)'; // amber for multiplier
+          ctx.fillText(multPart, startX, centerY);
+
+          ctx.fillStyle = delta.color;
+          ctx.fillText(valuePart, startX + multW, centerY);
+
+          ctx.textAlign = 'center';
+        } else {
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 4;
+          ctx.strokeText(delta.text, centerX, centerY);
+          ctx.fillStyle = delta.color;
+          ctx.fillText(delta.text, centerX, centerY);
+        }
       }
     }
 

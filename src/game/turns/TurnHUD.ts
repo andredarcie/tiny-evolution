@@ -344,6 +344,8 @@ export type HUDActionHandlers = {
 export class TurnHUD {
   private root: HTMLElement;
   private biomassEl: HTMLElement;
+  private biomassChartEl: HTMLCanvasElement;
+  private biomassHistory: number[] = [];
   private adaptationEl: HTMLElement;
   private hintEl: HTMLElement;
   private logEl: HTMLElement;
@@ -606,7 +608,8 @@ export class TurnHUD {
 
       <div class="hud-panel">
         <div class="hud-stats">
-          <div class="hud-stat">
+          <div class="hud-stat hud-stat-biomass">
+            <canvas class="hud-biomass-chart" id="hud-biomass-chart" aria-hidden="true"></canvas>
             <span class="hud-stat-label">Biomassa</span>
             <span class="hud-stat-value" id="hud-biomass"></span>
           </div>
@@ -638,6 +641,7 @@ export class TurnHUD {
     container.appendChild(this.root);
 
     this.biomassEl = this.root.querySelector('#hud-biomass')!;
+    this.biomassChartEl = this.root.querySelector('#hud-biomass-chart')!;
     this.adaptationEl = this.root.querySelector('#hud-adaptation')!;
     this.hintEl = this.root.querySelector('#hud-hint')!;
     this.phaseBannerEl = this.root.querySelector('#hud-phase-banner')!;
@@ -764,6 +768,7 @@ export class TurnHUD {
       : '';
     this.gameOverDetailEl.textContent = state.gameOverDetail;
     this.biomassEl.textContent = formatBiomass(state.biomass);
+    this.updateBiomassChart(state.biomass);
     this.adaptationEl.textContent = String(state.adaptation);
     this.hintEl.textContent = state.hint;
     this.logEl.innerHTML = state.logLines.map((line) => `<div class="hud-log-line">${line}</div>`).join('');
@@ -932,5 +937,78 @@ export class TurnHUD {
     this.encyclopediaNavEl.querySelectorAll<HTMLButtonElement>('[data-topic-id]').forEach((button) => {
       button.classList.toggle('is-active', button.dataset.topicId === topicId);
     });
+  }
+
+  private updateBiomassChart(biomass: number): void {
+    const MAX_POINTS = 50;
+    const last = this.biomassHistory[this.biomassHistory.length - 1];
+    if (last !== biomass) {
+      this.biomassHistory.push(biomass);
+      if (this.biomassHistory.length > MAX_POINTS) this.biomassHistory.shift();
+    }
+
+    const canvas = this.biomassChartEl;
+    const parent = canvas.parentElement!;
+    const w = parent.clientWidth;
+    const h = parent.clientHeight;
+    if (w === 0 || h === 0) return;
+
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
+
+    const ctx = canvas.getContext('2d')!;
+    ctx.clearRect(0, 0, w, h);
+
+    const history = this.biomassHistory;
+    if (history.length < 2) return;
+
+    const min = Math.min(...history);
+    const max = Math.max(...history);
+    const range = max - min || 1;
+
+    const padT = h * 0.18;
+    const padB = h * 0.08;
+    const n = history.length;
+    const toX = (i: number) => (i / (n - 1)) * w;
+    const toY = (v: number) => padT + (1 - (v - min) / range) * (h - padT - padB);
+
+    const isGrowing = history[n - 1] >= history[0];
+    const lineColor = isGrowing ? 'rgba(79, 140, 74, 0.45)' : 'rgba(180, 60, 40, 0.4)';
+    const areaTop   = isGrowing ? 'rgba(79, 140, 74, 0.18)' : 'rgba(180, 60, 40, 0.14)';
+    const areaBot   = isGrowing ? 'rgba(79, 140, 74, 0.0)'  : 'rgba(180, 60, 40, 0.0)';
+
+    const drawCurve = (c: CanvasRenderingContext2D) => {
+      c.moveTo(toX(0), toY(history[0]));
+      for (let i = 1; i < n; i++) {
+        const cpx = (toX(i - 1) + toX(i)) / 2;
+        c.bezierCurveTo(cpx, toY(history[i - 1]), cpx, toY(history[i]), toX(i), toY(history[i]));
+      }
+    };
+
+    // Filled area with vertical gradient
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, areaTop);
+    grad.addColorStop(1, areaBot);
+    ctx.beginPath();
+    drawCurve(ctx);
+    ctx.lineTo(toX(n - 1), h);
+    ctx.lineTo(toX(0), h);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Line
+    ctx.beginPath();
+    drawCurve(ctx);
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = 1.5;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    // Dot at latest point
+    ctx.beginPath();
+    ctx.arc(toX(n - 1), toY(history[n - 1]), 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = lineColor;
+    ctx.fill();
   }
 }
