@@ -21,6 +21,17 @@ function getAdaptCost(nextEvolution: EvolutionDefinition, tileEnergy: number): n
   return Math.max(1, Math.round(ADAPT_PAYBACK_TURNS * tileEnergy * M));
 }
 
+// Expand cost scales with organism complexity: 3 turns × group multiplier.
+// Bacteria (×1) = 3, Mammals (×10) = 30.
+const EXPAND_BASE_TURNS = 3;
+
+function getExpandCost(colony: Colony): number {
+  const form = EVOLUTION_BY_ID.get(colony.lifeFormId);
+  if (!form) return 1;
+  const M = GROUP_ENERGY_MULTIPLIER[form.group];
+  return Math.max(1, Math.round(EXPAND_BASE_TURNS * M));
+}
+
 interface LifeMilestone {
   id: string;
   triggerLifeFormId: string;
@@ -776,10 +787,10 @@ export class TurnGameScene {
   startExpandMode(): void {
     if (this.gameOver) return;
     const colony = this.getSelectedColony();
-    if (!colony || !this.canColonyAct(colony) || colony.biomass <= 0) return;
+    if (!colony || !this.canColonyAct(colony) || colony.biomass < getExpandCost(colony)) return;
     this.tickTimer = 0;
     this.mode = 'expand';
-    this.pushLog('Modo expandir ativo. Clique em um tile vizinho válido.');
+    this.pushLog(`Modo expandir ativo (custo: ${getExpandCost(colony)} biomassa). Clique em um tile vizinho válido.`);
     this.updateHUD();
   }
 
@@ -1586,17 +1597,18 @@ export class TurnGameScene {
       return;
     }
 
-    if (colony.biomass <= 0) {
-      this.pushLog('A colonia de origem esta sem biomassa local para sustentar a expansao.');
+    const expandCost = getExpandCost(colony);
+    if (colony.biomass < expandCost) {
+      this.pushLog(`Biomassa insuficiente para expandir (precisa de ${expandCost}, tem ${colony.biomass}).`);
       this.mode = 'idle';
       this.updateHUD();
       return;
     }
 
-    colony.biomass -= 1;
+    colony.biomass -= expandCost;
     colony.autoExplore = false;
     colony.autoConsolidate = false;
-    this.recordBiomassDelta(colony.id, -1);
+    this.recordBiomassDelta(colony.id, -expandCost);
     const newColony = this.addColony(x, y, {
       population: 1,
       biomass: 1,
@@ -1634,7 +1646,7 @@ export class TurnGameScene {
   }
 
   private hasExpandTarget(colony: Colony | null): boolean {
-    if (!colony || colony.biomass <= 0 || !this.canColonyAct(colony)) return false;
+    if (!colony || colony.biomass < getExpandCost(colony) || !this.canColonyAct(colony)) return false;
 
     const candidates = this.getNeighborCoords(colony.x, colony.y);
 
@@ -1833,9 +1845,10 @@ export class TurnGameScene {
     const adaptCost = (selected && nextEvolution) ? getAdaptCost(nextEvolution, this.tileEnergy[selected.y][selected.x]) : 0;
     const canAdapt = isPlayerPhase && !this.gameWon && selected !== null && this.canColonyAct(selected) && selected.adaptationPoints > 0 && this.canSelectedAdapt() && selected.biomass >= adaptCost;
     const adaptBlockedReason = canAdapt ? '' : this.getAdaptBlockedReason(selected);
+    const expandCost = selected ? getExpandCost(selected) : 0;
     const canExpand = isPlayerPhase && !this.gameWon && this.hasExpandTarget(selected);
     const canDecompose = isPlayerPhase && !this.gameWon && selected !== null && this.isColonyEstablished(selected) && this.isTerminalColony(selected);
-    const floatingAnchor = selected ? this.getFloatingMenuAnchor(selected) : null;
+    const floatingAnchor = (selected && this.cellSize > 0) ? this.getFloatingMenuAnchor(selected) : null;
 
     this.hud.update({
       actionPoints: this.actionPoints,
@@ -1853,10 +1866,11 @@ export class TurnGameScene {
       adaptCost,
       adaptBlockedReason,
       canExpand,
+      expandCost,
       canDecompose,
       canSeed: isPlayerPhase && !this.gameWon && this.getBiomassPool() >= SEED_COST && this.mode === 'idle',
       showCancel: isPlayerPhase && (this.mode === 'expand' || this.mode === 'seed'),
-      floatingMenuVisible: isPlayerPhase && !this.gameWon && selected !== null && this.mode === 'idle',
+      floatingMenuVisible: isPlayerPhase && !this.gameWon && selected !== null && this.mode === 'idle' && this.cellSize > 0,
       floatingMenuX: floatingAnchor?.x ?? 0,
       floatingMenuY: floatingAnchor?.y ?? 0,
       floatingMenuSide: floatingAnchor?.side ?? 'right',

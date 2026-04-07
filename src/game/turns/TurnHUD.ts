@@ -308,6 +308,7 @@ export interface TurnHUDState {
   adaptCost: number;
   adaptBlockedReason: string;
   canExpand: boolean;
+  expandCost: number;
   canDecompose: boolean;
   canSeed: boolean;
   showCancel: boolean;
@@ -372,6 +373,7 @@ export class TurnHUD {
   private floatingAdaptCostEl: HTMLElement;
   private floatingAdaptReasonEl: HTMLElement;
   private floatingExpandBtn: HTMLButtonElement;
+  private floatingExpandCostEl: HTMLElement;
   private floatingDecomposeBtn: HTMLButtonElement;
   private floatingCancelBtn: HTMLButtonElement;
   private treeModalEl: HTMLElement;
@@ -450,7 +452,7 @@ export class TurnHUD {
           <button id="floating-expand">
             <span class="action-icon icon-expand" aria-hidden="true"></span>
             <span class="adapt-label">Expandir</span>
-            <span class="adapt-price-pill">1 🌿</span>
+            <span class="adapt-price-pill" id="floating-expand-cost"></span>
           </button>
           <button class="floating-inline-info-btn" id="floating-expand-info" aria-label="Saiba mais sobre expandir">ⓘ</button>
         </div>
@@ -678,6 +680,7 @@ export class TurnHUD {
     this.floatingAdaptCostEl = this.root.querySelector('#floating-adapt-cost')!;
     this.floatingAdaptReasonEl = this.root.querySelector('#floating-adapt-reason')!;
     this.floatingExpandBtn = this.root.querySelector('#floating-expand')!;
+    this.floatingExpandCostEl = this.root.querySelector('#floating-expand-cost')!;
     this.floatingDecomposeBtn = this.root.querySelector('#floating-decompose')!;
     this.floatingCancelBtn = this.root.querySelector('#floating-cancel')!;
     this.treeModalEl = this.root.querySelector('#tree-modal')!;
@@ -795,6 +798,7 @@ export class TurnHUD {
     this.floatingAdaptReasonEl.classList.toggle('hidden', state.canAdapt || !state.adaptBlockedReason);
     this.floatingExpandBtn.disabled = !state.canExpand;
     this.floatingExpandBtn.style.display = state.canExpand ? 'flex' : 'none';
+    this.floatingExpandCostEl.textContent = state.expandCost > 0 ? `${state.expandCost} 🌿` : '';
     this.floatingDecomposeBtn.disabled = !state.canDecompose;
     this.floatingDecomposeBtn.style.display = state.canDecompose ? 'flex' : 'none';
     this.floatingCancelBtn.disabled = !state.showCancel;
